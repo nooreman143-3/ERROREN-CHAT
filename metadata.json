@@ -1,0 +1,6 @@
+{
+  "name": "ERROREN CHAT",
+  "description": "Secure, private, real-time messaging, audio/video calls, status stories, groups, and ERROREN AI assistant.",
+  "requestFramePermissions": ["camera", "microphone", "geolocation", "notifications"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

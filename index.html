@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en" class="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, interactive-widget=resizes-content" />
+    <title>ERROREN CHAT</title>
+    <meta name="description" content="Secure, private, real-time messaging, audio/video calls, status stories, groups, and ERROREN AI assistant." />
+    <meta property="og:title" content="ERROREN CHAT" />
+    <meta property="og:description" content="Secure, private, real-time messaging, audio/video calls, status stories, groups, and ERROREN AI assistant." />
+    <meta name="theme-color" content="#070A0F" />
+    
+    <!-- PWA & Mobile Web App -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="ERROREN CHAT" />
+    <link rel="manifest" href="/manifest.json" />
+
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Space+Grotesk:wght@500;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <script>
+      // Gracefully prevent unhandled promise rejection logs for dev-mode Vite HMR in cloud preview
+      window.addEventListener('unhandledrejection', function(event) {
+        var reason = event.reason;
+        var msg = (reason && (reason.message || (typeof reason === 'string' ? reason : ''))) || '';
+        if (msg.indexOf('WebSocket closed without opened') !== -1 || msg.indexOf('[vite]') !== -1) {
+          event.preventDefault();
+        }
+      });
+    </script>
+  </head>
+  <body class="bg-[#070A0F] text-slate-100 antialiased selection:bg-emerald-500/30 selection:text-emerald-200 overflow-x-hidden font-sans">
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
+

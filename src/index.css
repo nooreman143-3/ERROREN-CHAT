@@ -1,0 +1,107 @@
+@import "tailwindcss";
+
+:root {
+  --accent: #3B82F6;
+  --accent-hex: #3B82F6;
+  --accent-hover: #2563EB;
+  --accent-active: #1D4ED8;
+  --accent-text: #60A5FA;
+  --accent-soft: rgba(59, 130, 246, 0.16);
+  --accent-soft-bg: rgba(59, 130, 246, 0.16);
+  --accent-border: rgba(59, 130, 246, 0.35);
+  --accent-border-strong: rgba(59, 130, 246, 0.65);
+  --accent-foreground: #FFFFFF;
+  --accent-glow: 0 0 20px rgba(59, 130, 246, 0.35);
+  --accent-ring: rgba(59, 130, 246, 0.45);
+}
+
+/* Background utilities */
+.bg-accent {
+  background-color: var(--accent-hex) !important;
+}
+.hover\:bg-accent-hover:hover {
+  background-color: var(--accent-hover) !important;
+}
+.active\:bg-accent-active:active {
+  background-color: var(--accent-active) !important;
+}
+.bg-accent-soft {
+  background-color: var(--accent-soft-bg) !important;
+}
+.hover\:bg-accent-soft:hover {
+  background-color: var(--accent-soft-bg) !important;
+}
+
+/* Text utilities */
+.text-accent {
+  color: var(--accent-hex) !important;
+}
+.text-accent-bright {
+  color: var(--accent-text) !important;
+}
+.text-accent-foreground {
+  color: var(--accent-foreground) !important;
+}
+.hover\:text-accent:hover {
+  color: var(--accent-text) !important;
+}
+.hover\:text-accent-bright:hover {
+  color: var(--accent-text) !important;
+}
+
+/* Border utilities */
+.border-accent {
+  border-color: var(--accent-hex) !important;
+}
+.border-accent-soft {
+  border-color: var(--accent-border) !important;
+}
+.border-accent-strong {
+  border-color: var(--accent-border-strong) !important;
+}
+.hover\:border-accent:hover {
+  border-color: var(--accent-hex) !important;
+}
+.hover\:border-accent-soft:hover {
+  border-color: var(--accent-border) !important;
+}
+.focus\:border-accent:focus,
+.focus-within\:border-accent:focus-within {
+  border-color: var(--accent-hex) !important;
+}
+
+/* Ring utilities */
+.ring-accent {
+  --tw-ring-color: var(--accent-ring) !important;
+  box-shadow: 0 0 0 2px var(--accent-ring) !important;
+}
+.ring-accent-solid {
+  --tw-ring-color: var(--accent-hex) !important;
+  box-shadow: 0 0 0 2px var(--accent-hex) !important;
+}
+
+/* Shadow utilities */
+.shadow-accent {
+  box-shadow: var(--accent-glow) !important;
+}
+
+/* Primary Action Button Helper */
+.btn-accent {
+  background-color: var(--accent-hex) !important;
+  color: var(--accent-foreground) !important;
+  transition: all 0.15s ease-in-out;
+}
+.btn-accent:hover {
+  background-color: var(--accent-hover) !important;
+}
+.btn-accent:active {
+  background-color: var(--accent-active) !important;
+}
+
+/* Badge Helper */
+.badge-accent {
+  background-color: var(--accent-soft-bg) !important;
+  color: var(--accent-text) !important;
+  border: 1px solid var(--accent-border) !important;
+}
+

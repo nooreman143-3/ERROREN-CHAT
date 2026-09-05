@@ -1,0 +1,27 @@
+{
+  "users": {
+    "usr_g_1788450244096_0m7h": {
+      "id": "usr_g_1788450244096_0m7h",
+      "email": "test@gmail.com",
+      "googleId": "gid_1788450244096",
+      "displayName": "test",
+      "about": "Available | Using ERROREN CHAT ⚡",
+      "avatarUrl": "https://api.dicebear.com/7.x/bottts/svg?seed=usr_g_1788450244096_0m7h",
+      "isOnline": true,
+      "lastSeen": 1788450244096,
+      "role": "user",
+      "createdAt": 1788450244096
+    }
+  },
+  "contacts": {},
+  "chats": {},
+  "messages": {},
+  "communities": {},
+  "channels": {},
+  "channelPosts": {},
+  "statuses": [],
+  "callLogs": [],
+  "aiConversations": {},
+  "reports": [],
+  "blocks": {}
+}
