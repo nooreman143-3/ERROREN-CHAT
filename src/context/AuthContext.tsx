@@ -23,7 +23,7 @@ interface AuthContextType {
   closeProfileModal: () => void;
   isLoading: boolean;
   error: string | null;
-  loginWithGoogle: (email: string, displayName?: string, avatarUrl?: string, googleId?: string) => Promise<boolean>;
+  loginWithGoogle: (email: string, displayName?: string, avatarUrl?: string, googleId?: string, mode?: 'login' | 'register' | 'auto') => Promise<boolean>;
   loginWithPhone: (phoneNumber: string, displayName?: string, countryCode?: string, avatarUrl?: string) => Promise<boolean>;
   updateProfile: (
     displayName: string, 
@@ -268,24 +268,47 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     email: string,
     displayName?: string,
     avatarUrl?: string,
-    googleId?: string
+    googleId?: string,
+    mode: 'login' | 'register' | 'auto' = 'auto'
   ): Promise<boolean> => {
     setIsLoading(true);
     setError(null);
+    const cleanEmail = email.trim().toLowerCase();
+
+    // Client-side quick check
+    const existingKnownUser = allUsers.find(
+      (u) => u.email && u.email.trim().toLowerCase() === cleanEmail
+    ) || savedAccounts.find(
+      (u) => u.email && u.email.trim().toLowerCase() === cleanEmail
+    );
+
+    if (mode === 'register' && existingKnownUser) {
+      setIsLoading(false);
+      setError('An account with this email already exists. Please log in to your existing account.');
+      return false;
+    }
+
     try {
       const res = await fetch('/api/auth/google', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          email: email.trim().toLowerCase(),
+          email: cleanEmail,
           displayName,
           avatarUrl,
           googleId: googleId || `gid_${Date.now()}`,
+          mode,
         }),
       });
 
-      if (res.ok && res.headers.get('content-type')?.includes('application/json')) {
+      const contentType = res.headers.get('content-type') || '';
+      if (contentType.includes('application/json')) {
         const data = await res.json();
+        if (!res.ok) {
+          setError(data.error || 'Authentication failed. Please try again.');
+          return false;
+        }
+
         setCurrentUser(data.user);
         safeStorage.setJSON('erroren_user', data.user);
         saveToAccountList(data.user);
@@ -301,33 +324,56 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return true;
       }
 
-      // Offline / Static fallback (e.g. GitHub Pages)
-      const fallbackUser: User = {
+      if (!res.ok) {
+        setError('Authentication server error. Please try again.');
+        return false;
+      }
+
+      // Offline / Static fallback (e.g. GitHub Pages static deploy)
+      if (mode === 'register' && existingKnownUser) {
+        setError('An account with this email already exists. Please log in to your existing account.');
+        return false;
+      }
+      if (mode === 'login' && !existingKnownUser && allUsers.length > 0) {
+        setError('No account found with this email. Please create an account first.');
+        return false;
+      }
+
+      const targetUser = existingKnownUser || {
         id: `usr_g_${Date.now()}`,
-        email: email.trim().toLowerCase(),
+        email: cleanEmail,
         googleId: googleId || `gid_${Date.now()}`,
-        displayName: displayName?.trim() || email.split('@')[0],
+        displayName: displayName?.trim() || cleanEmail.split('@')[0],
         about: 'Available | Using ERROREN CHAT ⚡',
-        avatarUrl: avatarUrl || `https://api.dicebear.com/7.x/bottts/svg?seed=${email}`,
+        avatarUrl: avatarUrl || `https://api.dicebear.com/7.x/bottts/svg?seed=${cleanEmail}`,
         isOnline: true,
         lastSeen: Date.now(),
         role: 'user',
         createdAt: Date.now(),
       };
-      setCurrentUser(fallbackUser);
-      safeStorage.setJSON('erroren_user', fallbackUser);
-      saveToAccountList(fallbackUser);
+      setCurrentUser(targetUser);
+      safeStorage.setJSON('erroren_user', targetUser);
+      saveToAccountList(targetUser);
       setAuthStep('authenticated');
       return true;
     } catch (err: any) {
-      // Local fallback for static hosting
-      const fallbackUser: User = {
+      // Offline fallback handling
+      if (mode === 'register' && existingKnownUser) {
+        setError('An account with this email already exists. Please log in to your existing account.');
+        return false;
+      }
+      if (mode === 'login' && !existingKnownUser && allUsers.length > 0) {
+        setError('No account found with this email. Please create an account first.');
+        return false;
+      }
+
+      const fallbackUser: User = existingKnownUser || {
         id: `usr_g_${Date.now()}`,
-        email: email.trim().toLowerCase(),
+        email: cleanEmail,
         googleId: googleId || `gid_${Date.now()}`,
-        displayName: displayName?.trim() || email.split('@')[0],
+        displayName: displayName?.trim() || cleanEmail.split('@')[0],
         about: 'Available | Using ERROREN CHAT ⚡',
-        avatarUrl: avatarUrl || `https://api.dicebear.com/7.x/bottts/svg?seed=${email}`,
+        avatarUrl: avatarUrl || `https://api.dicebear.com/7.x/bottts/svg?seed=${cleanEmail}`,
         isOnline: true,
         lastSeen: Date.now(),
         role: 'user',
@@ -436,6 +482,25 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (!currentUser) return false;
     setIsLoading(true);
     setError(null);
+
+    // Client-side phone uniqueness check
+    if (phoneNumber) {
+      const cleanDigits = phoneNumber.trim().replace(/[^0-9]/g, '');
+      if (cleanDigits.length > 0) {
+        const isTakenClient = allUsers.some(u => {
+          if (u.id === currentUser.id) return false;
+          const uPhoneDigits = ((u.countryCode || '') + (u.phoneNumber || '')).replace(/[^0-9]/g, '');
+          const justPhone = (u.phoneNumber || '').replace(/[^0-9]/g, '');
+          return uPhoneDigits === cleanDigits || justPhone === cleanDigits;
+        });
+        if (isTakenClient) {
+          setError('This phone number is already associated with another account.');
+          setIsLoading(false);
+          return false;
+        }
+      }
+    }
+
     try {
       const res = await fetch('/api/auth/profile', {
         method: 'POST',
@@ -450,8 +515,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           countryCode: countryCode || currentUser.countryCode || '+92',
         }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to update profile');
+
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(data.error || 'Failed to update profile');
+        setIsLoading(false);
+        return false;
+      }
 
       setCurrentUser(data.user);
       safeStorage.setJSON('erroren_user', data.user);
@@ -460,21 +530,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       await refreshUsers();
       return true;
     } catch (err: any) {
-      // Local fallback for offline mode
-      const updated: User = {
-        ...currentUser,
-        displayName: displayName.trim(),
-        username: username !== undefined ? username.trim().replace(/^@/, '') : currentUser.username,
-        about: about.trim(),
-        avatarUrl: avatarUrl || currentUser.avatarUrl,
-        phoneNumber: phoneNumber !== undefined ? phoneNumber.trim() : currentUser.phoneNumber,
-        countryCode: countryCode || currentUser.countryCode || '+92',
-      };
-      setCurrentUser(updated);
-      safeStorage.setJSON('erroren_user', updated);
-      saveToAccountList(updated);
-      setAuthStep('authenticated');
-      return true;
+      setError(err.message || 'Failed to update profile');
+      return false;
     } finally {
       setIsLoading(false);
     }
@@ -487,6 +544,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     phoneVisibility: 'everyone' | 'contacts' | 'nobody' = 'everyone'
   ): Promise<{ success: boolean; isSmsConfigured: boolean; message: string }> => {
     if (!currentUser) return { success: false, isSmsConfigured: false, message: 'User not logged in' };
+
+    const cleanDigits = (phoneNumber || '').trim().replace(/[^0-9]/g, '');
+    if (cleanDigits.length > 0) {
+      const isTakenClient = allUsers.some(u => {
+        if (u.id === currentUser.id) return false;
+        const uPhoneDigits = ((u.countryCode || '') + (u.phoneNumber || '')).replace(/[^0-9]/g, '');
+        const justPhone = (u.phoneNumber || '').replace(/[^0-9]/g, '');
+        return uPhoneDigits === cleanDigits || justPhone === cleanDigits;
+      });
+      if (isTakenClient) {
+        return {
+          success: false,
+          isSmsConfigured: false,
+          message: 'This phone number is already associated with another account.',
+        };
+      }
+    }
+
     try {
       const res = await fetch('/api/account/phone', {
         method: 'POST',
@@ -499,9 +574,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }),
       });
 
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        throw new Error(data.error || 'Failed to update phone number');
+        return {
+          success: false,
+          isSmsConfigured: false,
+          message: data.error || 'This phone number is already associated with another account.',
+        };
       }
 
       setCurrentUser(data.user);

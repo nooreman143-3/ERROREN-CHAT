@@ -369,12 +369,52 @@ export const db = {
     for (const u of Object.values(dbState.users)) {
       if (u.phoneNumber) {
         const cleanUserPhone = ((u.countryCode || '') + u.phoneNumber).replace(/[^0-9]/g, '');
-        if (matchPhoneNumbers(cleanTarget, cleanUserPhone) || matchPhoneNumbers(cleanTarget, u.phoneNumber)) {
+        const cleanJustPhone = (u.phoneNumber || '').replace(/[^0-9]/g, '');
+        if (
+          cleanTarget === cleanUserPhone ||
+          cleanTarget === cleanJustPhone ||
+          matchPhoneNumbers(cleanTarget, cleanUserPhone) || 
+          matchPhoneNumbers(cleanTarget, u.phoneNumber)
+        ) {
           return u;
         }
       }
     }
     return null;
+  },
+
+  isEmailTaken(email: string, excludeUserId?: string): boolean {
+    if (!email) return false;
+    const cleanEmail = email.trim().toLowerCase();
+    for (const u of Object.values(dbState.users)) {
+      if (excludeUserId && u.id === excludeUserId) continue;
+      if (u.email && u.email.trim().toLowerCase() === cleanEmail) {
+        return true;
+      }
+    }
+    return false;
+  },
+
+  isPhoneTaken(phone: string, excludeUserId?: string): boolean {
+    if (!phone) return false;
+    const cleanTarget = phone.replace(/[^0-9]/g, '');
+    if (!cleanTarget) return false;
+    for (const u of Object.values(dbState.users)) {
+      if (excludeUserId && u.id === excludeUserId) continue;
+      if (u.phoneNumber) {
+        const cleanUserPhone = ((u.countryCode || '') + u.phoneNumber).replace(/[^0-9]/g, '');
+        const cleanJustPhone = (u.phoneNumber || '').replace(/[^0-9]/g, '');
+        if (
+          cleanTarget === cleanUserPhone ||
+          cleanTarget === cleanJustPhone ||
+          matchPhoneNumbers(cleanTarget, cleanUserPhone) ||
+          matchPhoneNumbers(cleanTarget, u.phoneNumber)
+        ) {
+          return true;
+        }
+      }
+    }
+    return false;
   },
 
   linkContactsToUser(user: StoredUser) {
@@ -420,6 +460,21 @@ export const db = {
   },
 
   createUser(user: StoredUser): StoredUser {
+    // Database-level Uniqueness Checks
+    if (user.email) {
+      const cleanEmail = user.email.trim().toLowerCase();
+      if (this.isEmailTaken(cleanEmail, user.id)) {
+        throw new Error('An account with this email already exists. Please log in to your existing account.');
+      }
+    }
+
+    if (user.phoneNumber) {
+      const cleanPhone = user.phoneNumber.replace(/[^0-9]/g, '');
+      if (cleanPhone.length > 0 && this.isPhoneTaken(cleanPhone, user.id)) {
+        throw new Error('This phone number is already associated with another account.');
+      }
+    }
+
     dbState.users[user.id] = user;
     saveDatabase();
     return user;
@@ -428,6 +483,22 @@ export const db = {
   updateUser(id: string, updates: Partial<StoredUser>): StoredUser | null {
     const u = dbState.users[id];
     if (!u) return null;
+
+    // Database-level Uniqueness Checks on Update
+    if (updates.email) {
+      const cleanEmail = updates.email.trim().toLowerCase();
+      if (this.isEmailTaken(cleanEmail, id)) {
+        throw new Error('An account with this email already exists. Please log in to your existing account.');
+      }
+    }
+
+    if (updates.phoneNumber) {
+      const cleanPhone = updates.phoneNumber.replace(/[^0-9]/g, '');
+      if (cleanPhone.length > 0 && this.isPhoneTaken(cleanPhone, id)) {
+        throw new Error('This phone number is already associated with another account.');
+      }
+    }
+
     dbState.users[id] = { ...u, ...updates, updatedAt: Date.now() };
     saveDatabase();
     return dbState.users[id];

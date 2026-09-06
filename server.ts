@@ -336,15 +336,35 @@ wss.on('connection', (ws: WebSocket) => {
 
 // 1. Google Authentication Route ("Continue with Google")
 app.post('/api/auth/google', (req: Request, res: Response) => {
-  const { email, displayName, avatarUrl, googleId } = req.body;
+  const { email, displayName, avatarUrl, googleId, mode } = req.body;
 
   if (!email || !email.includes('@')) {
     return res.status(400).json({ error: 'Valid Google email address is required.' });
   }
 
+  // Strictly normalize email (trim, convert to lowercase)
   const cleanEmail = email.trim().toLowerCase();
   let user = db.getUserByEmail(cleanEmail);
   let isNew = false;
+
+  // Enforce Registration vs Login constraints
+  if (mode === 'register') {
+    if (user) {
+      return res.status(409).json({
+        error: 'An account with this email already exists. Please log in to your existing account.',
+        code: 'EMAIL_ALREADY_EXISTS',
+        exists: true,
+      });
+    }
+  } else if (mode === 'login') {
+    if (!user) {
+      return res.status(404).json({
+        error: 'No account found with this email. Please create an account first.',
+        code: 'USER_NOT_FOUND',
+        notFound: true,
+      });
+    }
+  }
 
   if (!user) {
     isNew = true;
@@ -352,20 +372,27 @@ app.post('/api/auth/google', (req: Request, res: Response) => {
     const initialName = displayName?.trim() || cleanEmail.split('@')[0];
     const initialAvatar = avatarUrl || `https://api.dicebear.com/7.x/bottts/svg?seed=${userId}`;
 
-    user = db.createUser({
-      id: userId,
-      email: cleanEmail,
-      googleId: googleId || `gid_${Date.now()}`,
-      displayName: initialName,
-      about: 'Available | Using ERROREN CHAT ⚡',
-      avatarUrl: initialAvatar,
-      isOnline: true,
-      lastSeen: Date.now(),
-      role: 'user',
-      createdAt: Date.now(),
-    });
+    try {
+      user = db.createUser({
+        id: userId,
+        email: cleanEmail,
+        googleId: googleId || `gid_${Date.now()}`,
+        displayName: initialName,
+        about: 'Available | Using ERROREN CHAT ⚡',
+        avatarUrl: initialAvatar,
+        isOnline: true,
+        lastSeen: Date.now(),
+        role: 'user',
+        createdAt: Date.now(),
+      });
+    } catch (err: any) {
+      return res.status(409).json({
+        error: 'An account with this email already exists. Please log in to your existing account.',
+        code: 'EMAIL_ALREADY_EXISTS',
+      });
+    }
   } else {
-    // Existing user login
+    // Existing user login - update presence and OAuth token without modifying existing uniqueness
     user = db.updateUser(user.id, {
       isOnline: true,
       lastSeen: Date.now(),
@@ -388,6 +415,16 @@ app.post('/api/auth/google', (req: Request, res: Response) => {
     isProfileComplete,
     isNewUser: isNew,
   });
+});
+
+// Email Availability Check Route
+app.get('/api/auth/check-email', (req: Request, res: Response) => {
+  const email = (req.query.email as string || '').trim().toLowerCase();
+  if (!email || !email.includes('@')) {
+    return res.status(400).json({ error: 'Valid email address is required.' });
+  }
+  const exists = db.isEmailTaken(email);
+  res.json({ exists });
 });
 
 // Phone Authentication Route ("Continue with Phone Number" e.g. 03399951515)
@@ -501,28 +538,58 @@ app.post('/api/auth/profile', (req: Request, res: Response) => {
     return res.status(400).json({ error: 'User ID is required.' });
   }
 
+  // Validate Email Uniqueness if updating email
+  if (email) {
+    const cleanEmail = email.trim().toLowerCase();
+    if (db.isEmailTaken(cleanEmail, userId)) {
+      return res.status(409).json({
+        error: 'An account with this email already exists. Please log in to your existing account.',
+        code: 'EMAIL_ALREADY_EXISTS',
+      });
+    }
+  }
+
+  // Validate Phone Uniqueness if updating phone
+  if (phoneNumber) {
+    const cleanPhone = phoneNumber.trim().replace(/[^0-9]/g, '');
+    if (cleanPhone.length > 0 && db.isPhoneTaken(cleanPhone, userId)) {
+      return res.status(409).json({
+        error: 'This phone number is already associated with another account.',
+        code: 'PHONE_ALREADY_IN_USE',
+      });
+    }
+  }
+
   let user = db.getUserById(userId);
   if (!user) {
-    user = db.createUser({
-      id: userId,
-      displayName: (displayName || 'ERROREN Member').trim(),
-      about: (about !== undefined ? about : 'Available | Using ERROREN CHAT ⚡').trim(),
-      avatarUrl: avatarUrl || `https://api.dicebear.com/7.x/bottts/svg?seed=${userId}`,
-      email: email || undefined,
-      phoneNumber: phoneNumber || undefined,
-      isOnline: true,
-      lastSeen: Date.now(),
-      role: 'user',
-      createdAt: Date.now(),
-    });
+    try {
+      user = db.createUser({
+        id: userId,
+        displayName: (displayName || 'ERROREN Member').trim(),
+        about: (about !== undefined ? about : 'Available | Using ERROREN CHAT ⚡').trim(),
+        avatarUrl: avatarUrl || `https://api.dicebear.com/7.x/bottts/svg?seed=${userId}`,
+        email: email ? email.trim().toLowerCase() : undefined,
+        phoneNumber: phoneNumber ? phoneNumber.trim() : undefined,
+        isOnline: true,
+        lastSeen: Date.now(),
+        role: 'user',
+        createdAt: Date.now(),
+      });
+    } catch (err: any) {
+      return res.status(409).json({ error: err.message || 'Validation error' });
+    }
   } else {
-    user = db.updateUser(userId, {
-      displayName: (displayName || user.displayName || 'ERROREN Member').trim(),
-      about: (about !== undefined ? about : user.about).trim(),
-      avatarUrl: avatarUrl || user.avatarUrl,
-      email: email || user.email,
-      phoneNumber: phoneNumber || user.phoneNumber,
-    })!;
+    try {
+      user = db.updateUser(userId, {
+        displayName: (displayName || user.displayName || 'ERROREN Member').trim(),
+        about: (about !== undefined ? about : user.about).trim(),
+        avatarUrl: avatarUrl || user.avatarUrl,
+        email: email ? email.trim().toLowerCase() : user.email,
+        phoneNumber: phoneNumber ? phoneNumber.trim() : user.phoneNumber,
+      })!;
+    } catch (err: any) {
+      return res.status(409).json({ error: err.message || 'Validation error' });
+    }
   }
 
   // Broadcast user update to all active WebSocket clients
@@ -555,27 +622,53 @@ app.post('/api/account/phone', (req: Request, res: Response) => {
     return res.status(404).json({ error: 'User not found.' });
   }
 
-  const isSmsServiceConfigured = Boolean(process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN);
-
   const cleanPhone = (phoneNumber || '').trim().replace(/[^0-9]/g, '');
 
-  const updated = db.updateUser(userId, {
-    phoneNumber: cleanPhone ? phoneNumber.trim() : undefined,
-    countryCode: countryCode || '+1',
-    isPhoneVerified: cleanPhone ? isSmsServiceConfigured : false,
-    phoneVisibility: phoneVisibility || 'everyone',
-  });
+  // Reject duplicate phone numbers: ONE UNIQUE PHONE NUMBER = ONE USER ACCOUNT ONLY
+  if (cleanPhone.length > 0 && db.isPhoneTaken(cleanPhone, userId)) {
+    return res.status(409).json({
+      error: 'This phone number is already associated with another account.',
+      code: 'PHONE_ALREADY_IN_USE',
+    });
+  }
 
-  res.json({
-    success: true,
-    user: updated,
-    isSmsServiceConfigured,
-    message: cleanPhone
-      ? isSmsServiceConfigured
-        ? 'Phone number updated and verified via SMS provider.'
-        : 'Phone number saved to profile. Note: SMS Gateway verification service (Twilio/Firebase SMS) is not configured in this environment.'
-      : 'Phone number removed.',
-  });
+  const isSmsServiceConfigured = Boolean(process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN);
+
+  try {
+    const updated = db.updateUser(userId, {
+      phoneNumber: cleanPhone ? phoneNumber.trim() : undefined,
+      countryCode: countryCode || '+92',
+      isPhoneVerified: cleanPhone ? isSmsServiceConfigured : false,
+      phoneVisibility: phoneVisibility || 'everyone',
+    });
+
+    res.json({
+      success: true,
+      user: updated,
+      isSmsServiceConfigured,
+      message: cleanPhone
+        ? isSmsServiceConfigured
+          ? 'Phone number updated and verified via SMS provider.'
+          : 'Phone number saved to profile. Note: SMS Gateway verification service (Twilio/Firebase SMS) is not configured in this environment.'
+        : 'Phone number removed.',
+    });
+  } catch (err: any) {
+    return res.status(409).json({
+      error: err.message || 'This phone number is already associated with another account.',
+      code: 'PHONE_ALREADY_IN_USE',
+    });
+  }
+});
+
+// Phone Availability Check Route
+app.get('/api/account/check-phone', (req: Request, res: Response) => {
+  const phone = (req.query.phone as string || '').trim().replace(/[^0-9]/g, '');
+  const userId = req.query.userId as string || '';
+  if (!phone) {
+    return res.status(400).json({ error: 'Valid phone number is required.' });
+  }
+  const isTaken = db.isPhoneTaken(phone, userId);
+  res.json({ isTaken });
 });
 
 // 3. User & Contacts Discovery Routes

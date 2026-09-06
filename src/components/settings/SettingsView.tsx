@@ -28,7 +28,7 @@ import {
   ChevronRight,
   Phone,
   HelpCircle,
-  MessageCircle,
+  Mail,
   ExternalLink,
   Loader2,
   FileText,
@@ -131,12 +131,14 @@ export const SettingsView: React.FC = () => {
     }
   };
 
-  const openWhatsAppSupport = () => {
-    const supportPhone = '923399951515';
-    const message = encodeURIComponent(
-      `Hello ERROREN CHAT Support! I need assistance with my account (${currentUser.email || currentUser.displayName}).`
+  const contactSupport = () => {
+    const subject = encodeURIComponent(
+      `ERROREN CHAT Support Request - ${currentUser.displayName || currentUser.email || 'User'}`
     );
-    window.open(`https://wa.me/${supportPhone}?text=${message}`, '_blank');
+    const body = encodeURIComponent(
+      `Hello ERROREN Support Team,\n\nI need assistance with my account.\nUser ID: ${currentUser.id}\nEmail: ${currentUser.email || 'N/A'}\n\nDetails of my issue:\n`
+    );
+    window.location.href = `mailto:support@erroren.chat?subject=${subject}&body=${body}`;
   };
 
   return (
@@ -768,47 +770,55 @@ export const SettingsView: React.FC = () => {
           </div>
         </div>
 
-        {/* 6. Help Center & WhatsApp Support Button */}
-        <div className="p-5 rounded-2xl bg-slate-900/60 border border-slate-800 space-y-4">
-          <div className="flex items-center gap-2 text-xs font-bold text-emerald-400 uppercase tracking-wider">
+        {/* 6. Help Center & Official Support */}
+        <div className={`p-5 rounded-2xl border transition-colors duration-200 ${
+          isDark ? 'bg-slate-900/60 border-slate-800' : 'bg-white border-slate-200 shadow-sm'
+        } space-y-4`}>
+          <div className="flex items-center gap-2 text-xs font-bold text-emerald-500 uppercase tracking-wider">
             <HelpCircle className="w-4 h-4" />
             <span>Help Center & Support</span>
           </div>
 
-          <p className="text-xs text-slate-300">
+          <p className={`text-xs ${isDark ? 'text-slate-300' : 'text-slate-600'}`}>
             Have questions or need technical support? Contact our official support desk:
           </p>
 
-          {/* Official WhatsApp Support Button */}
+          {/* Official Support Button */}
           <button
-            onClick={openWhatsAppSupport}
-            className="w-full flex items-center justify-between p-3.5 rounded-2xl bg-emerald-950/40 hover:bg-emerald-900/40 border border-emerald-500/40 text-emerald-300 transition group shadow-md"
+            onClick={contactSupport}
+            className={`w-full flex items-center justify-between p-3.5 rounded-2xl border transition group shadow-sm ${
+              isDark 
+                ? 'bg-emerald-950/40 hover:bg-emerald-900/40 border-emerald-500/40 text-emerald-300' 
+                : 'bg-emerald-50 hover:bg-emerald-100/70 border-emerald-300 text-emerald-800'
+            }`}
           >
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-emerald-500 text-slate-950 flex items-center justify-center font-bold">
-                <MessageCircle className="w-5 h-5" />
+              <div className="w-10 h-10 rounded-xl bg-emerald-500 text-white flex items-center justify-center font-bold">
+                <Mail className="w-5 h-5" />
               </div>
               <div className="text-left">
-                <div className="text-xs sm:text-sm font-bold text-white group-hover:text-emerald-300 transition">
-                  Official WhatsApp Support
+                <div className={`text-xs sm:text-sm font-bold ${
+                  isDark ? 'text-white group-hover:text-emerald-300' : 'text-slate-900 group-hover:text-emerald-900'
+                } transition`}>
+                  Official ERROREN Helpdesk
                 </div>
-                <div className="text-[11px] text-emerald-400/90 font-mono">+92 339 9951515</div>
+                <div className="text-[11px] text-emerald-500 font-mono">support@erroren.chat</div>
               </div>
             </div>
-            <ExternalLink className="w-4 h-4 text-emerald-400" />
+            <ExternalLink className="w-4 h-4 text-emerald-500" />
           </button>
 
-          <div className="flex items-center gap-4 text-xs text-slate-400 pt-2">
+          <div className={`flex items-center gap-4 text-xs ${isDark ? 'text-slate-400' : 'text-slate-500'} pt-2`}>
             <button
               onClick={() => setShowLegalModal('terms')}
-              className="hover:text-emerald-400 transition underline underline-offset-2"
+              className="hover:text-emerald-500 transition underline underline-offset-2"
             >
               Terms of Service
             </button>
             <span>•</span>
             <button
               onClick={() => setShowLegalModal('privacy')}
-              className="hover:text-emerald-400 transition underline underline-offset-2"
+              className="hover:text-emerald-500 transition underline underline-offset-2"
             >
               Privacy Policy
             </button>
@@ -902,7 +912,7 @@ export const SettingsView: React.FC = () => {
                 <strong>2. Google Authentication:</strong> Google login provides account authentication without exposing credentials. No passwords are stored.
               </p>
               <p>
-                <strong>3. Contact Support:</strong> Official support is available via WhatsApp at +92 339 9951515.
+                <strong>3. Contact Support:</strong> Official support is available via email at support@erroren.chat.
               </p>
             </div>
             <div className="pt-2 border-t border-slate-800 flex justify-end">

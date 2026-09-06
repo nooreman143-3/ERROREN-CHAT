@@ -46,7 +46,7 @@ const COUNTRY_CODES = [
 ];
 
 export const EditProfileModal: React.FC<EditProfileModalProps> = ({ isOpen, onClose }) => {
-  const { currentUser, updateProfile, savePhoneNumber, userSettings, updateUserSettings } = useAuth();
+  const { currentUser, updateProfile, savePhoneNumber, userSettings, updateUserSettings, error } = useAuth();
   const { isDark, currentAccent } = useTheme();
   
   const [displayName, setDisplayName] = useState(currentUser?.displayName || '');
@@ -129,18 +129,33 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({ isOpen, onCl
     setErrorMsg(null);
 
     try {
-      // 1. Update Profile (Name, Username, Bio, Avatar, Phone)
+      const cleanPhone = phoneNumber.trim();
+
+      // 1. If phone number is being changed or added, validate phone uniqueness first
+      if (cleanPhone && cleanPhone !== currentUser.phoneNumber) {
+        const phoneRes = await savePhoneNumber(cleanPhone, countryCode);
+        if (!phoneRes.success) {
+          setErrorMsg(phoneRes.message || 'This phone number is already associated with another account.');
+          setIsSaving(false);
+          return;
+        }
+      }
+
+      // 2. Update Profile (Name, Username, Bio, Avatar, Phone)
       const success = await updateProfile(
         displayName.trim(),
         about.trim(),
         avatarUrl || `https://api.dicebear.com/7.x/bottts/svg?seed=${currentUser.id}`,
         cleanUsername,
-        phoneNumber.trim(),
+        cleanPhone,
         countryCode
       );
 
-      // 2. Also register phone to account
-      await savePhoneNumber(phoneNumber.trim(), countryCode);
+      if (!success) {
+        setErrorMsg(error || 'Failed to update profile. Please check your details.');
+        setIsSaving(false);
+        return;
+      }
 
       // 3. Update Privacy Settings
       updateUserSettings({
@@ -153,15 +168,11 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({ isOpen, onCl
         },
       });
 
-      if (success) {
-        setSavedSuccess(true);
-        setTimeout(() => {
-          setSavedSuccess(false);
-          onClose();
-        }, 800);
-      } else {
-        setErrorMsg('Failed to update profile. Please try again.');
-      }
+      setSavedSuccess(true);
+      setTimeout(() => {
+        setSavedSuccess(false);
+        onClose();
+      }, 800);
     } catch (err: any) {
       setErrorMsg(err.message || 'Failed to update profile.');
     } finally {

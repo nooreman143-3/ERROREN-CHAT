@@ -10,7 +10,24 @@
       "isOnline": true,
       "lastSeen": 1788450244096,
       "role": "user",
-      "createdAt": 1788450244096
+      "createdAt": 1788450244096,
+      "phoneNumber": "03001234567",
+      "countryCode": "+92",
+      "isPhoneVerified": false,
+      "phoneVisibility": "everyone",
+      "updatedAt": 1788683613066
+    },
+    "usr_g_1788683625251_fkdh": {
+      "id": "usr_g_1788683625251_fkdh",
+      "email": "test2@gmail.com",
+      "googleId": "gid_1788683625251",
+      "displayName": "Test Two",
+      "about": "Available | Using ERROREN CHAT ⚡",
+      "avatarUrl": "https://api.dicebear.com/7.x/bottts/svg?seed=usr_g_1788683625251_fkdh",
+      "isOnline": true,
+      "lastSeen": 1788683625251,
+      "role": "user",
+      "createdAt": 1788683625251
     }
   },
   "contacts": {},
