@@ -200,8 +200,12 @@ export const ErrorenAiView: React.FC<ErrorenAiViewProps> = ({ currentUser }) => 
         }),
       });
 
+      if (!res.ok) {
+        console.error(`[ERROREN AI API Error] HTTP ${res.status}: ${res.statusText}`);
+      }
+
       const data = await res.json();
-      const replyText = data.reply || 'I processed your request with ERROREN AI.';
+      const replyText = data.reply || (data.success === false && data.error) || 'I processed your request with ERROREN AI.';
 
       const aiMsg: AiChatMessage = {
         id: `ai_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
@@ -212,10 +216,11 @@ export const ErrorenAiView: React.FC<ErrorenAiViewProps> = ({ currentUser }) => 
 
       setMessages((prev) => [...prev, aiMsg]);
     } catch (err) {
+      console.error('[ERROREN AI Network/Client Error]:', err);
       const errorMsg: AiChatMessage = {
         id: `ai_err_${Date.now()}`,
         sender: 'ai',
-        text: 'I encountered a temporary connection issue reaching the AI engine. Please check your network and try again.',
+        text: "Sorry, I couldn't generate a response right now. Please try again.",
         timestamp: Date.now(),
       };
       setMessages((prev) => [...prev, errorMsg]);
@@ -258,8 +263,12 @@ export const ErrorenAiView: React.FC<ErrorenAiViewProps> = ({ currentUser }) => 
         }),
       });
 
+      if (!res.ok) {
+        console.error(`[ERROREN AI API Error] HTTP ${res.status}: ${res.statusText}`);
+      }
+
       const data = await res.json();
-      const replyText = data.reply || 'Here is an updated response from ERROREN AI.';
+      const replyText = data.reply || (data.success === false && data.error) || 'Here is an updated response from ERROREN AI.';
 
       const aiMsg: AiChatMessage = {
         id: `ai_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
@@ -270,7 +279,14 @@ export const ErrorenAiView: React.FC<ErrorenAiViewProps> = ({ currentUser }) => 
 
       setMessages((prev) => [...prev, aiMsg]);
     } catch (err) {
-      // keep state
+      console.error('[ERROREN AI Network/Client Error]:', err);
+      const errorMsg: AiChatMessage = {
+        id: `ai_err_${Date.now()}`,
+        sender: 'ai',
+        text: "Sorry, I couldn't generate a response right now. Please try again.",
+        timestamp: Date.now(),
+      };
+      setMessages((prev) => [...prev, errorMsg]);
     } finally {
       setIsLoading(false);
     }

@@ -3,7 +3,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useSocket } from '../../context/SocketContext';
 import { useTheme } from '../../context/ThemeContext';
 import { Logo } from './Logo';
-import { Users, Plus, WifiOff, Settings } from 'lucide-react';
+import { Users, Plus, WifiOff, Settings, RefreshCw } from 'lucide-react';
 import { Avatar } from './Avatar';
 
 interface TopBarProps {
@@ -22,7 +22,7 @@ export const TopBar: React.FC<TopBarProps> = ({
   isHiddenOnMobile = false,
 }) => {
   const { currentUser } = useAuth();
-  const { isConnected } = useSocket();
+  const { isConnected, connectionState, reconnect } = useSocket();
   const { currentAccent } = useTheme();
 
   return (
@@ -37,22 +37,34 @@ export const TopBar: React.FC<TopBarProps> = ({
         <div className="flex items-center gap-2">
           <div
             className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-mono font-medium border ${
-              isConnected
+              connectionState === 'connected'
                 ? 'bg-emerald-950/60 text-emerald-400 border-emerald-500/30 shadow-[0_0_10px_rgba(52,211,153,0.15)]'
+                : connectionState === 'connecting' || connectionState === 'reconnecting'
+                ? 'bg-amber-950/60 text-amber-400 border-amber-500/30'
                 : 'bg-rose-950/60 text-rose-400 border-rose-500/30'
             }`}
           >
-            {isConnected ? (
+            {connectionState === 'connected' ? (
               <>
                 <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
                 <span className="hidden sm:inline">Live Socket</span>
                 <span className="sm:hidden">Online</span>
               </>
-            ) : (
+            ) : connectionState === 'connecting' || connectionState === 'reconnecting' ? (
               <>
-                <WifiOff className="w-3 h-3 text-rose-400" />
+                <RefreshCw className="w-3 h-3 text-amber-400 animate-spin" />
                 <span>Connecting...</span>
               </>
+            ) : (
+              <button
+                type="button"
+                onClick={reconnect}
+                className="flex items-center gap-1.5 hover:underline focus:outline-none cursor-pointer"
+                title="Connection offline. Click to reconnect."
+              >
+                <WifiOff className="w-3 h-3 text-rose-400" />
+                <span>Offline</span>
+              </button>
             )}
           </div>
         </div>

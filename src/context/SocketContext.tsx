@@ -3,8 +3,12 @@ import { useAuth } from './AuthContext';
 import { Message, StatusStory, CallType, SocketEventPayload, ActiveCall, CallStatus } from '../types';
 import { soundEffects } from '../utils/audio';
 
+export type ConnectionState = 'connecting' | 'connected' | 'disconnected' | 'reconnecting';
+
 interface SocketContextType {
   isConnected: boolean;
+  connectionState: ConnectionState;
+  reconnect: () => void;
   onlineUserIds: Set<string>;
   typingUsers: { [chatId: string]: string | null };
   activeCall: ActiveCall | null;
@@ -37,10 +41,29 @@ interface SocketContextType {
 
 const SocketContext = createContext<SocketContextType | undefined>(undefined);
 
+function getWebSocketUrl(): string {
+  // 1. Explicit environment variable if configured
+  const envWs = (import.meta.env.VITE_WS_URL || '').trim();
+  if (envWs) return envWs;
+
+  // 2. From backend URL if configured
+  const backend = (import.meta.env.VITE_BACKEND_URL || import.meta.env.VITE_API_URL || '').trim();
+  if (backend) {
+    const proto = backend.startsWith('https:') ? 'wss:' : 'ws:';
+    const host = backend.replace(/^https?:\/\//, '').replace(/\/.*$/, '');
+    return `${proto}//${host}/ws`;
+  }
+
+  // 3. Dynamic resolution from active browser location
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  return `${protocol}//${window.location.host}/ws`;
+}
+
 export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { currentUser } = useAuth();
   const socketRef = useRef<WebSocket | null>(null);
   const [isConnected, setIsConnected] = useState<boolean>(false);
+  const [connectionState, setConnectionState] = useState<ConnectionState>('disconnected');
   const [onlineUserIds, setOnlineUserIds] = useState<Set<string>>(new Set());
   const [typingUsers, setTypingUsers] = useState<{ [chatId: string]: string | null }>({});
   
@@ -69,6 +92,8 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     statusCallbackRef.current = cb;
   }, []);
 
+  const connectRef = useRef<() => void>(() => {});
+
   // Initialize and connect WebSocket with clean reconnection
   useEffect(() => {
     if (!currentUser) {
@@ -77,19 +102,37 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         socketRef.current = null;
       }
       setIsConnected(false);
+      setConnectionState('disconnected');
       return;
     }
+
+    // Initial snapshot of online users via HTTP for immediate presence rendering
+    fetch('/api/presence/online')
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (data && Array.isArray(data.onlineUserIds)) {
+          setOnlineUserIds(new Set(data.onlineUserIds));
+        }
+      })
+      .catch(() => {});
 
     let isUnmounted = false;
     let reconnectTimeout: any = null;
     let pingInterval: any = null;
+    let reconnectAttempts = 0;
 
     const connect = () => {
       if (isUnmounted) return;
-      try {
-        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const wsUrl = `${protocol}//${window.location.host}/ws`;
 
+      // Avoid creating multiple sockets if one is already open or connecting
+      if (socketRef.current && (socketRef.current.readyState === WebSocket.OPEN || socketRef.current.readyState === WebSocket.CONNECTING)) {
+        return;
+      }
+
+      setConnectionState(reconnectAttempts > 0 ? 'reconnecting' : 'connecting');
+
+      try {
+        const wsUrl = getWebSocketUrl();
         const ws = new WebSocket(wsUrl);
         socketRef.current = ws;
 
@@ -98,7 +141,10 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
             ws.close();
             return;
           }
+          reconnectAttempts = 0;
           setIsConnected(true);
+          setConnectionState('connected');
+
           // Authenticate socket
           ws.send(JSON.stringify({
             type: 'auth',
@@ -117,42 +163,77 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
         ws.onclose = () => {
           setIsConnected(false);
+          setConnectionState('disconnected');
           socketRef.current = null;
-          // Reconnect gracefully after delay if still mounted
+
           if (!isUnmounted) {
-            reconnectTimeout = setTimeout(connect, 3000);
+            // Exponential backoff with ceiling of 15 seconds
+            const delay = Math.min(1000 * Math.pow(1.5, reconnectAttempts), 15000);
+            reconnectAttempts++;
+            reconnectTimeout = setTimeout(connect, delay);
           }
         };
 
         ws.onerror = () => {
-          // Handled via onclose reconnection logic cleanly
+          // Socket error handled cleanly via onclose
         };
       } catch (err) {
+        setIsConnected(false);
+        setConnectionState('disconnected');
         if (!isUnmounted) {
-          reconnectTimeout = setTimeout(connect, 3000);
+          const delay = Math.min(1000 * Math.pow(1.5, reconnectAttempts), 15000);
+          reconnectAttempts++;
+          reconnectTimeout = setTimeout(connect, delay);
         }
       }
     };
 
+    connectRef.current = connect;
     connect();
 
+    // Regular keepalive heartbeat
     pingInterval = setInterval(() => {
       if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
         socketRef.current.send(JSON.stringify({ type: 'ping' }));
       }
     }, 25000);
 
+    // Browser network recovery listeners
+    const handleOnline = () => {
+      reconnectAttempts = 0;
+      connect();
+    };
+    const handleOffline = () => {
+      setIsConnected(false);
+      setConnectionState('disconnected');
+    };
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
     return () => {
       isUnmounted = true;
       if (reconnectTimeout) clearTimeout(reconnectTimeout);
       if (pingInterval) clearInterval(pingInterval);
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
       if (socketRef.current) {
         socketRef.current.close();
         socketRef.current = null;
       }
       setIsConnected(false);
+      setConnectionState('disconnected');
     };
   }, [currentUser?.id]);
+
+  const reconnect = useCallback(() => {
+    if (socketRef.current) {
+      socketRef.current.close();
+      socketRef.current = null;
+    }
+    if (connectRef.current) {
+      connectRef.current();
+    }
+  }, []);
 
   const handleSocketEvent = (payload: any) => {
     switch (payload.type) {
@@ -542,6 +623,8 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     <SocketContext.Provider
       value={{
         isConnected,
+        connectionState,
+        reconnect,
         onlineUserIds,
         typingUsers,
         activeCall,

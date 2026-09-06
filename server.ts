@@ -30,12 +30,38 @@ const PORT = 3000;
 app.use(express.json({ limit: '35mb' }));
 app.use(express.urlencoded({ extended: true, limit: '35mb' }));
 
-// Initialise Gemini SDK with mandatory telemetry header
-const geminiApiKey = process.env.GEMINI_API_KEY;
-let aiClient: GoogleGenAI | null = null;
-if (geminiApiKey) {
-  aiClient = new GoogleGenAI({
-    apiKey: geminiApiKey,
+// Cross-Origin Resource Sharing (CORS) & Preflight Handler for Production & Multi-domain environments
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  if (origin) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+  } else {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+  }
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept');
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(204);
+  }
+  next();
+});
+
+// Lazy initialization of Gemini SDK reading from all possible secret environment variables
+function getGeminiClient(): GoogleGenAI | null {
+  const apiKey = (
+    process.env.GEMINI_API_KEY ||
+    process.env.API_KEY ||
+    process.env.GOOGLE_API_KEY ||
+    ''
+  ).trim();
+
+  if (!apiKey) {
+    return null;
+  }
+
+  return new GoogleGenAI({
+    apiKey,
     httpOptions: {
       headers: {
         'User-Agent': 'aistudio-build',
@@ -53,13 +79,37 @@ let totalAiRequests = 0;
 
 const wss = new WebSocketServer({ noServer: true });
 
+// Heartbeat tracking to terminate dead/silent connections and prevent phantom online statuses
+const heartbeatInterval = setInterval(() => {
+  wss.clients.forEach((client: any) => {
+    if (client.isAlive === false) {
+      console.log('[WebSocket] Terminating inactive socket connection');
+      return client.terminate();
+    }
+    client.isAlive = false;
+    client.ping();
+  });
+}, 30000);
+
+httpServer.on('close', () => {
+  clearInterval(heartbeatInterval);
+});
+
 httpServer.on('upgrade', (request, socket, head) => {
   const url = request.url || '';
   const pathname = url.split('?')[0];
-  if (pathname === '/ws') {
+  if (
+    pathname === '/ws' ||
+    pathname === '/ws/' ||
+    pathname.endsWith('/ws') ||
+    pathname.endsWith('/ws/')
+  ) {
     wss.handleUpgrade(request, socket, head, (ws) => {
       wss.emit('connection', ws, request);
     });
+  } else {
+    // Safely destroy unrecognized upgrade attempts to prevent hanging sockets
+    socket.destroy();
   }
 });
 
@@ -126,7 +176,12 @@ function broadcastToAll(data: any) {
   });
 }
 
-wss.on('connection', (ws: WebSocket) => {
+wss.on('connection', (ws: any) => {
+  ws.isAlive = true;
+  ws.on('pong', () => {
+    ws.isAlive = true;
+  });
+
   let authenticatedUserId: string | null = null;
 
   ws.on('message', (rawData: Buffer) => {
@@ -333,6 +388,17 @@ wss.on('connection', (ws: WebSocket) => {
 // -------------------------------------------------------------
 // REST API Endpoints
 // -------------------------------------------------------------
+
+// System Health & Diagnostics Endpoint
+app.get('/api/health', (req: Request, res: Response) => {
+  res.json({
+    status: 'ok',
+    app: 'ERROREN CHAT',
+    geminiConfigured: !!(process.env.GEMINI_API_KEY || process.env.API_KEY || process.env.GOOGLE_API_KEY),
+    activeSockets: wss.clients.size,
+    timestamp: Date.now(),
+  });
+});
 
 // 1. Google Authentication Route ("Continue with Google")
 app.post('/api/auth/google', (req: Request, res: Response) => {
@@ -673,8 +739,20 @@ app.get('/api/account/check-phone', (req: Request, res: Response) => {
 
 // 3. User & Contacts Discovery Routes
 app.get('/api/users', (req: Request, res: Response) => {
-  const users = db.getAllUsers();
+  const users = db.getAllUsers().map((u) => ({
+    ...u,
+    isOnline: userSockets.has(u.id) && (userSockets.get(u.id)?.size || 0) > 0,
+  }));
   res.json(users);
+});
+
+// Realtime Presence Sync Endpoint
+app.get('/api/presence/online', (req: Request, res: Response) => {
+  const onlineIds = Array.from(userSockets.keys()).filter((uid) => {
+    const set = userSockets.get(uid);
+    return set && set.size > 0;
+  });
+  res.json({ onlineUserIds: onlineIds });
 });
 
 app.get('/api/users/search', (req: Request, res: Response) => {
@@ -2038,42 +2116,42 @@ You provide high quality, comprehensive, and accurate answers to any question or
 - Summarizing text and brainstorming ideas
 Maintain context across previous messages in the conversation. Format your responses with clean, readable Markdown (bullet points, bold highlights, formatted code blocks).`;
 
-  try {
-    if (aiClient) {
-      const formattedHistory = (messages || [])
-        .map((m: any) => `${m.role === 'user' ? 'User' : 'ERROREN AI'}: ${m.content}`)
-        .join('\n');
-      const prompt = formattedHistory
-        ? `${formattedHistory}\nUser: ${userMessage}\nERROREN AI:`
-        : `User: ${userMessage}\nERROREN AI:`;
+  const client = getGeminiClient();
 
-      let aiResponse;
+  if (client) {
+    const formattedHistory = (messages || [])
+      .map((m: any) => `${m.role === 'user' ? 'User' : 'ERROREN AI'}: ${m.content}`)
+      .join('\n');
+    const prompt = formattedHistory
+      ? `${formattedHistory}\nUser: ${userMessage}\nERROREN AI:`
+      : `User: ${userMessage}\nERROREN AI:`;
+
+    const candidateModels = ['gemini-3.8-flash', 'gemini-flash-latest'];
+    let lastError: any = null;
+
+    for (const model of candidateModels) {
       try {
-        aiResponse = await aiClient.models.generateContent({
-          model: 'gemini-3.7-flash',
+        const aiResponse = await client.models.generateContent({
+          model,
           contents: prompt,
           config: {
             systemInstruction,
             temperature: 0.7,
           },
         });
-      } catch (mErr) {
-        console.warn('Retrying with gemini-2.5-flash...');
-        aiResponse = await aiClient.models.generateContent({
-          model: 'gemini-2.5-flash',
-          contents: prompt,
-          config: {
-            systemInstruction,
-            temperature: 0.7,
-          },
-        });
-      }
 
-      const reply = aiResponse.text || "I'm here to help with your messaging and tasks!";
-      return res.json({ success: true, reply, isFallback: false });
+        if (aiResponse && aiResponse.text) {
+          return res.json({ success: true, reply: aiResponse.text, isFallback: false });
+        }
+      } catch (err: any) {
+        lastError = err;
+        console.warn(`[ERROREN AI] Model ${model} generation attempt failed:`, err?.message || err);
+      }
     }
-  } catch (error: any) {
-    console.error('Gemini API Error, using smart fallback engine:', error?.message || error);
+
+    console.error('[ERROREN AI Production Error] All Gemini candidate models failed:', lastError?.message || lastError);
+  } else {
+    console.warn('[ERROREN AI Production Warning] No Gemini client initialized. Check GEMINI_API_KEY environment variable.');
   }
 
   // Smart fallback engine if API key is temporarily rate limited or not yet configured
@@ -2103,31 +2181,37 @@ app.post('/api/ai/assist', async (req: Request, res: Response) => {
   const { text, action, targetLanguage, context } = req.body;
   totalAiRequests++;
 
-  try {
-    if (aiClient) {
-      let prompt = '';
-      if (action === 'improve') {
-        prompt = `Improve this chat message to be clear, natural, engaging, and well-written. Return only the improved text: "${text}"`;
-      } else if (action === 'professional') {
-        prompt = `Rewrite this chat message into a polished, professional tone. Return only the rewritten message: "${text}"`;
-      } else if (action === 'shorten') {
-        prompt = `Shorten this chat message while keeping its core meaning. Return only the shortened text: "${text}"`;
-      } else if (action === 'translate') {
-        prompt = `Translate this chat message into ${targetLanguage || 'Spanish'}. Return only the direct translation: "${text}"`;
-      } else if (action === 'reply') {
-        prompt = `Given this incoming message: "${context || text}", generate a friendly, short quick reply. Return only the suggested reply text:`;
-      }
+  const client = getGeminiClient();
 
-      const aiResponse = await aiClient.models.generateContent({
-        model: 'gemini-3.7-flash',
-        contents: prompt,
-      });
-
-      const result = aiResponse.text?.trim() || text;
-      return res.json({ success: true, result });
+  if (client) {
+    let prompt = '';
+    if (action === 'improve') {
+      prompt = `Improve this chat message to be clear, natural, engaging, and well-written. Return only the improved text: "${text}"`;
+    } else if (action === 'professional') {
+      prompt = `Rewrite this chat message into a polished, professional tone. Return only the rewritten message: "${text}"`;
+    } else if (action === 'shorten') {
+      prompt = `Shorten this chat message while keeping its core meaning. Return only the shortened text: "${text}"`;
+    } else if (action === 'translate') {
+      prompt = `Translate this chat message into ${targetLanguage || 'Spanish'}. Return only the direct translation: "${text}"`;
+    } else if (action === 'reply') {
+      prompt = `Given this incoming message: "${context || text}", generate a friendly, short quick reply. Return only the suggested reply text:`;
     }
-  } catch (error) {
-    console.error('Gemini Assist Error:', error);
+
+    const candidateModels = ['gemini-3.8-flash', 'gemini-flash-latest'];
+    for (const model of candidateModels) {
+      try {
+        const aiResponse = await client.models.generateContent({
+          model,
+          contents: prompt,
+        });
+
+        if (aiResponse && aiResponse.text) {
+          return res.json({ success: true, result: aiResponse.text.trim() });
+        }
+      } catch (error: any) {
+        console.warn(`[ERROREN AI Assist] Model ${model} failed:`, error?.message || error);
+      }
+    }
   }
 
   let fallbackResult = text;
@@ -2187,11 +2271,19 @@ async function start() {
       },
       appType: 'spa',
     });
+    // In dev mode, prevent unmatched /api routes from falling through to Vite SPA index.html
+    app.use('/api', (req, res) => {
+      res.status(404).json({ error: `API route ${req.method} /api${req.path} not found.` });
+    });
     app.use(vite.middlewares);
   } else {
     const distPath = path.join(process.cwd(), 'dist');
     app.use(express.static(distPath));
     app.get('*', (req, res) => {
+      // Guard: never return HTML for unmatched /api routes
+      if (req.path.startsWith('/api/')) {
+        return res.status(404).json({ error: `Endpoint ${req.method} ${req.path} not found.` });
+      }
       res.sendFile(path.join(distPath, 'index.html'));
     });
   }

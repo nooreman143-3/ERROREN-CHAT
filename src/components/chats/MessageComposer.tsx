@@ -523,11 +523,16 @@ export const MessageComposer: React.FC<MessageComposerProps> = ({
         body: JSON.stringify(bodyData),
       });
 
+      if (!res.ok) {
+        console.error(`[ERROREN AI Assist API Error] HTTP ${res.status}: ${res.statusText}`);
+      }
+
       const data = await res.json();
       if (data.result) {
         setAiSuggestions([data.result]);
       }
     } catch (err) {
+      console.error('[ERROREN AI Assist Error]:', err);
       setAiSuggestions([`AI Refinement: "${text || 'Looking forward to speaking with you!'}"`]);
     } finally {
       setAiLoading(false);
