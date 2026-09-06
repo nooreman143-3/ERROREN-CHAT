@@ -2,13 +2,13 @@
   "name": "ERROREN CHAT",
   "short_name": "ERROREN",
   "description": "Secure. Private. Real-time messaging and ERROREN AI.",
-  "start_url": "/",
+  "start_url": ".",
   "display": "standalone",
   "background_color": "#070A0F",
   "theme_color": "#10B981",
   "icons": [
     {
-      "src": "/icon.svg",
+      "src": "icon.svg",
       "sizes": "192x192 512x512",
       "type": "image/svg+xml"
     }
