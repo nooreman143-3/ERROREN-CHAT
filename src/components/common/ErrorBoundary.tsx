@@ -48,7 +48,7 @@ export class ErrorBoundary extends Component<Props, State> {
       // ignore
     }
     if (typeof window !== 'undefined') {
-      window.location.href = '/';
+      window.location.reload();
     }
   };
 
