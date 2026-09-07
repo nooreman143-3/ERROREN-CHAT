@@ -305,24 +305,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const contentType = res.headers.get('content-type') || '';
       if (contentType.includes('application/json')) {
         const data = await res.json();
-        if (!res.ok) {
+        if (res.ok && data.user) {
+          setCurrentUser(data.user);
+          safeStorage.setJSON('erroren_user', data.user);
+          saveToAccountList(data.user);
+
+          if (data.isNewUser || !data.isProfileComplete) {
+            setAuthStep('profile');
+          } else {
+            setAuthStep('authenticated');
+          }
+
+          await refreshUsers();
+          await refreshContacts();
+          return true;
+        } else if (!data.offline && res.status !== 503) {
           setError(data.error || 'Authentication failed. Please try again.');
           return false;
         }
-
-        setCurrentUser(data.user);
-        safeStorage.setJSON('erroren_user', data.user);
-        saveToAccountList(data.user);
-
-        if (data.isNewUser || !data.isProfileComplete) {
-          setAuthStep('profile');
-        } else {
-          setAuthStep('authenticated');
-        }
-
-        await refreshUsers();
-        await refreshContacts();
-        return true;
       }
 
       if (!res.ok) {
@@ -519,6 +519,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
+        if (data.offline || res.status === 503) {
+          // Offline / Static fallback for profile update
+          const updated: User = {
+            ...currentUser,
+            displayName,
+            username: username || currentUser.username,
+            about,
+            avatarUrl,
+            phoneNumber: phoneNumber !== undefined ? phoneNumber : currentUser.phoneNumber,
+            countryCode: countryCode || currentUser.countryCode,
+          };
+          setCurrentUser(updated);
+          safeStorage.setJSON('erroren_user', updated);
+          saveToAccountList(updated);
+          setAuthStep('authenticated');
+          return true;
+        }
         setError(data.error || 'Failed to update profile');
         setIsLoading(false);
         return false;

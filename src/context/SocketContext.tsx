@@ -139,6 +139,12 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
       try {
         const wsUrl = getWebSocketUrl();
+        if (!wsUrl) {
+          // Static host mode without backend WebSocket (e.g. GitHub Pages static deploy)
+          setIsConnected(true);
+          setConnectionState('connected');
+          return;
+        }
         const ws = new WebSocket(wsUrl);
         socketRef.current = ws;
 

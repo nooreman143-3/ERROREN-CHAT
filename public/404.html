@@ -5,8 +5,9 @@
     <title>ERROREN CHAT</title>
     <script>
       // Single Page Apps for GitHub Pages redirection script
-      var pathSegmentsToKeep = 1;
       var l = window.location;
+      var isCustomDomain = !l.hostname.endsWith('github.io');
+      var pathSegmentsToKeep = isCustomDomain ? 0 : 1;
       l.replace(
         l.protocol + '//' + l.hostname + (l.port ? ':' + l.port : '') +
         l.pathname.split('/').slice(0, 1 + pathSegmentsToKeep).join('/') + '/?/' +

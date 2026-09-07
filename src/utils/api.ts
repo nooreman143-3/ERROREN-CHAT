@@ -60,12 +60,28 @@ export function apiUrl(path: string): string {
 
 /**
  * Wrapper around standard fetch that automatically resolves the correct API base URL
- * and ensures proper headers and JSON handling.
+ * and ensures proper headers, HTML 404 fallback, and error resilience.
  */
 export async function apiFetch(path: string, init?: RequestInit): Promise<Response> {
   const url = apiUrl(path);
   try {
-    return await fetch(url, init);
+    const res = await fetch(url, init);
+    // Wrap res.json so calling it on 404 HTML responses (e.g. static GitHub Pages) never crashes
+    const originalJson = res.json.bind(res);
+    res.json = async () => {
+      try {
+        const contentType = res.headers.get('content-type') || '';
+        if (contentType.includes('text/html') || !res.ok) {
+          if (contentType.includes('text/html')) {
+            return { error: 'Endpoint route not found on static host', success: false, offline: true };
+          }
+        }
+        return await originalJson();
+      } catch {
+        return { error: 'Invalid JSON response from server', success: false, offline: true };
+      }
+    };
+    return res;
   } catch (err) {
     // Return a safe 503 synthetic response so caller logic (.then or .json) doesn't unhandled-reject
     return new Response(
@@ -97,6 +113,10 @@ export function getWebSocketUrl(): string {
 
   // 3. Fallback to active browser location
   if (typeof window !== 'undefined') {
+    // On static hosting like GitHub Pages, no WebSocket server exists on github.io
+    if (window.location.hostname.endsWith('github.io')) {
+      return '';
+    }
     const isSecure = window.location.protocol === 'https:';
     return `${isSecure ? 'wss:' : 'ws:'}//${window.location.host}/ws`;
   }
