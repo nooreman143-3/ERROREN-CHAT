@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { User, AdminStats, Report } from '../../types';
 import { Avatar } from '../common/Avatar';
+import { apiFetch } from '../../utils/api';
 import { 
   ShieldAlert, 
   Users, 
@@ -32,13 +33,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const fetchAdminData = async () => {
     setIsLoading(true);
     try {
-      const statsRes = await fetch('/api/admin/stats');
+      const statsRes = await apiFetch('/api/admin/stats');
       if (statsRes.ok) {
         const s = await statsRes.json();
         setStats(s);
       }
 
-      const repRes = await fetch('/api/admin/reports');
+      const repRes = await apiFetch('/api/admin/reports');
       if (repRes.ok) {
         const r = await repRes.json();
         setReports(r);
@@ -56,7 +57,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   const handleResolveReport = async (reportId: string, action: 'dismissed' | 'banned') => {
     try {
-      await fetch('/api/admin/resolve-report', {
+      await apiFetch('/api/admin/resolve-report', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ reportId, action }),

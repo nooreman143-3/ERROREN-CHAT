@@ -327,12 +327,17 @@ export function matchPhoneNumbers(target: string, candidate: string): boolean {
 
   const stripTarget = cTarget.replace(/^0+/, '');
   const stripCandidate = cCandidate.replace(/^0+/, '');
-  if (stripTarget && stripCandidate && stripTarget === stripCandidate) return true;
+  if (stripTarget === stripCandidate) return true;
 
+  // Exact suffix match for country code differences (1-4 digits) e.g. 923001234567 vs 3001234567
   if (stripTarget.length >= 7 && stripCandidate.length >= 7) {
-    if (stripCandidate.includes(stripTarget) || stripTarget.includes(stripCandidate)) return true;
-    const minLen = Math.min(stripTarget.length, stripCandidate.length, 9);
-    if (stripTarget.slice(-minLen) === stripCandidate.slice(-minLen)) return true;
+    if (stripTarget.endsWith(stripCandidate)) {
+      const diff = stripTarget.length - stripCandidate.length;
+      if (diff >= 1 && diff <= 4) return true;
+    } else if (stripCandidate.endsWith(stripTarget)) {
+      const diff = stripCandidate.length - stripTarget.length;
+      if (diff >= 1 && diff <= 4) return true;
+    }
   }
   return false;
 }
@@ -516,6 +521,15 @@ export const db = {
   // --- CONTACTS ---
   getContacts(ownerUserId: string): StoredContact[] {
     return dbState.contacts[ownerUserId] || [];
+  },
+
+  hasContact(ownerUserId: string, contactUserId?: string, phoneNumber?: string): boolean {
+    const list = dbState.contacts[ownerUserId] || [];
+    return list.some((c) => {
+      if (contactUserId && c.contactUserId === contactUserId) return true;
+      if (phoneNumber && c.phoneNumber && matchPhoneNumbers(c.phoneNumber, phoneNumber)) return true;
+      return false;
+    });
   },
 
   addContact(ownerUserId: string, contact: StoredContact): StoredContact {

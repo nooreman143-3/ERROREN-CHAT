@@ -1,6 +1,7 @@
 import React, { useState, useRef } from 'react';
 import { User, Community } from '../../types';
 import { Avatar } from '../common/Avatar';
+import { apiFetch } from '../../utils/api';
 import { 
   Users, 
   X, 
@@ -73,7 +74,7 @@ export const CreateCommunityModal: React.FC<CreateCommunityModalProps> = ({
     setError(null);
 
     try {
-      const response = await fetch('/api/communities', {
+      const response = await apiFetch('/api/communities', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { User, Channel, ChannelPost, Community } from '../../types';
 import { Avatar } from '../common/Avatar';
+import { apiFetch } from '../../utils/api';
 import { 
   Megaphone, 
   X, 
@@ -72,7 +73,7 @@ export const ChannelViewModal: React.FC<ChannelViewModalProps> = ({
     const fetchPosts = async () => {
       setIsLoading(true);
       try {
-        const res = await fetch(`/api/channels/${channel.id}/posts`);
+        const res = await apiFetch(`/api/channels/${channel.id}/posts`);
         const data = await res.json();
         if (Array.isArray(data)) {
           setPosts(data);
@@ -118,7 +119,7 @@ export const ChannelViewModal: React.FC<ChannelViewModalProps> = ({
     setFollowerCount((prev) => nextFollowing ? prev + 1 : Math.max(0, prev - 1));
 
     try {
-      const res = await fetch(endpoint, {
+      const res = await apiFetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userId: currentUser.id }),
@@ -161,7 +162,7 @@ export const ChannelViewModal: React.FC<ChannelViewModalProps> = ({
     setError(null);
 
     try {
-      const response = await fetch(`/api/channels/${channel.id}/posts`, {
+      const response = await apiFetch(`/api/channels/${channel.id}/posts`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -212,7 +213,7 @@ export const ChannelViewModal: React.FC<ChannelViewModalProps> = ({
     );
 
     try {
-      await fetch(`/api/channels/${channel.id}/posts/${postId}/like`, {
+      await apiFetch(`/api/channels/${channel.id}/posts/${postId}/like`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userId: currentUser.id }),
@@ -229,7 +230,7 @@ export const ChannelViewModal: React.FC<ChannelViewModalProps> = ({
     setPosts((prev) => prev.filter((p) => p.id !== postId));
 
     try {
-      await fetch(`/api/channels/${channel.id}/posts/${postId}`, {
+      await apiFetch(`/api/channels/${channel.id}/posts/${postId}`, {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ requesterId: currentUser.id }),

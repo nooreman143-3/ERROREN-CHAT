@@ -47,8 +47,7 @@ export const TopBar: React.FC<TopBarProps> = ({
             {connectionState === 'connected' ? (
               <>
                 <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                <span className="hidden sm:inline">Live Socket</span>
-                <span className="sm:hidden">Online</span>
+                <span>Online</span>
               </>
             ) : connectionState === 'connecting' || connectionState === 'reconnecting' ? (
               <>

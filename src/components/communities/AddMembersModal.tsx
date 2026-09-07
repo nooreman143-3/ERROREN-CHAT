@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { User } from '../../types';
 import { Avatar } from '../common/Avatar';
 import { UserPlus, X, Search, Check, Loader2 } from 'lucide-react';
+import { apiFetch } from '../../utils/api';
 
 interface AddMembersModalProps {
   isOpen: boolean;
@@ -54,7 +55,7 @@ export const AddMembersModal: React.FC<AddMembersModalProps> = ({
     setError(null);
 
     try {
-      const response = await fetch(`/api/communities/${communityId}/members`, {
+      const response = await apiFetch(`/api/communities/${communityId}/members`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

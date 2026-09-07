@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { User, Channel } from '../../types';
 import { Megaphone, X, Loader2, Lock, Globe, Shield } from 'lucide-react';
+import { apiFetch } from '../../utils/api';
 
 interface CreateChannelModalProps {
   isOpen: boolean;
@@ -42,7 +43,7 @@ export const CreateChannelModal: React.FC<CreateChannelModalProps> = ({
     setError(null);
 
     try {
-      const response = await fetch(`/api/communities/${communityId}/channels`, {
+      const response = await apiFetch(`/api/communities/${communityId}/channels`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

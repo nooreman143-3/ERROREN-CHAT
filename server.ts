@@ -762,6 +762,46 @@ app.get('/api/users/search', (req: Request, res: Response) => {
   res.json(results);
 });
 
+// Real-time Phone Registration Check Endpoint
+app.get('/api/users/check-phone', (req: Request, res: Response) => {
+  const phone = (req.query.phone as string || '').trim();
+  const currentUserId = (req.query.currentUserId as string || '').trim();
+
+  if (!phone || phone.replace(/[^0-9]/g, '').length < 7) {
+    return res.status(400).json({
+      registered: false,
+      error: 'Please enter a valid phone number with at least 7 digits.',
+    });
+  }
+
+  const matchedUser = db.getUserByPhone(phone);
+  if (!matchedUser) {
+    return res.json({
+      registered: false,
+      message: 'This number is not registered on this platform.',
+    });
+  }
+
+  const isSelf = currentUserId && matchedUser.id === currentUserId;
+  const alreadySaved = currentUserId ? db.hasContact(currentUserId, matchedUser.id, matchedUser.phoneNumber) : false;
+
+  return res.json({
+    registered: true,
+    isSelf,
+    alreadySaved,
+    user: {
+      id: matchedUser.id,
+      displayName: matchedUser.displayName,
+      avatarUrl: matchedUser.avatarUrl,
+      about: matchedUser.about,
+      phoneNumber: matchedUser.phoneNumber,
+      countryCode: matchedUser.countryCode,
+      isOnline: userSockets.has(matchedUser.id) && (userSockets.get(matchedUser.id)?.size || 0) > 0,
+      lastSeen: matchedUser.lastSeen,
+    },
+  });
+});
+
 // Saved Contacts Routes
 app.get('/api/contacts', (req: Request, res: Response) => {
   const userId = req.query.userId as string;
@@ -772,62 +812,83 @@ app.get('/api/contacts', (req: Request, res: Response) => {
 
 app.post('/api/contacts', (req: Request, res: Response) => {
   const { ownerUserId, name, phoneNumber, avatarUrl, about } = req.body;
-  if (!ownerUserId || !name) {
-    return res.status(400).json({ error: 'Owner User ID and Contact Name are required.' });
+  if (!ownerUserId) {
+    return res.status(400).json({ success: false, error: 'Owner user ID is required.' });
   }
 
-  // Look up if this phone number is registered by an existing ERROREN user
-  let matchedUserId: string | undefined = undefined;
-  let matchedUser = phoneNumber ? db.getUserByPhone(phoneNumber) : null;
-  if (matchedUser && matchedUser.id !== ownerUserId) {
-    matchedUserId = matchedUser.id;
+  // 1. Validate the phone number
+  const rawPhone = (phoneNumber || '').trim();
+  const cleanDigits = rawPhone.replace(/[^0-9]/g, '');
+  if (!rawPhone || cleanDigits.length < 7 || cleanDigits.length > 15) {
+    return res.status(400).json({
+      success: false,
+      error: 'Please enter a valid phone number (minimum 7 digits).',
+      code: 'INVALID_PHONE_NUMBER',
+    });
   }
 
-  // If not yet registered on ERROREN CHAT, create a persistent user profile for them
-  // so the owner can immediately start a chat, call, or message them seamlessly
-  if (!matchedUserId && phoneNumber) {
-    const cleanDigits = (phoneNumber || '').replace(/[^0-9]/g, '');
-    const virtualUserId = `usr_p_${cleanDigits || Date.now()}`;
-    let virtualUser = db.getUserById(virtualUserId);
-    if (!virtualUser) {
-      virtualUser = db.createUser({
-        id: virtualUserId,
-        displayName: name.trim(),
-        phoneNumber: phoneNumber.trim(),
-        countryCode: phoneNumber.trim().startsWith('+') ? '' : '+92',
-        about: about?.trim() || 'Saved Contact on ERROREN CHAT',
-        avatarUrl: avatarUrl || `https://api.dicebear.com/7.x/bottts/svg?seed=${cleanDigits || name}`,
-        isOnline: false,
-        lastSeen: Date.now(),
-        role: 'user',
-        createdAt: Date.now(),
-        isPhoneVerified: false,
-      });
-    }
-    matchedUserId = virtualUser.id;
-    matchedUser = virtualUser;
+  // 2. Check whether that number belongs to an existing registered/active account on this website
+  const matchedUser = db.getUserByPhone(rawPhone);
+
+  // 3. If the number is NOT registered and does not have an account/ID on this website:
+  // Do NOT save it as a valid website contact. Show clear error message.
+  if (!matchedUser) {
+    return res.status(404).json({
+      success: false,
+      error: 'This number is not registered on this platform.',
+      code: 'NUMBER_NOT_REGISTERED',
+    });
   }
 
-  const finalAvatar = avatarUrl || matchedUser?.avatarUrl || `https://api.dicebear.com/7.x/bottts/svg?seed=${phoneNumber || name}`;
-  const finalAbout = about || matchedUser?.about || 'Saved Contact';
+  // Check self-addition
+  if (matchedUser.id === ownerUserId) {
+    return res.status(400).json({
+      success: false,
+      error: 'You cannot add your own phone number as a contact.',
+      code: 'CANNOT_ADD_SELF',
+    });
+  }
+
+  // Check duplicates
+  if (db.hasContact(ownerUserId, matchedUser.id, matchedUser.phoneNumber || rawPhone)) {
+    return res.status(409).json({
+      success: false,
+      error: 'This contact is already in your contacts list.',
+      code: 'CONTACT_ALREADY_EXISTS',
+    });
+  }
+
+  // 4. If the number IS registered: allow saving, display registered profile info, save in DB
+  const contactName = name?.trim() || matchedUser.displayName || `User ${cleanDigits.slice(-4)}`;
+  const finalAvatar = avatarUrl?.trim() || matchedUser.avatarUrl || `https://api.dicebear.com/7.x/bottts/svg?seed=${matchedUser.id}`;
+  const finalAbout = about?.trim() || matchedUser.about || 'Available | Using ERROREN CHAT ⚡';
 
   const newContact: StoredContact = {
     id: `cnt_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
     ownerUserId,
-    contactUserId: matchedUserId,
-    name: name.trim(),
-    phoneNumber: (phoneNumber || '').trim(),
+    contactUserId: matchedUser.id,
+    name: contactName,
+    phoneNumber: matchedUser.phoneNumber || rawPhone,
     avatarUrl: finalAvatar,
     about: finalAbout,
     createdAt: Date.now(),
   };
 
   db.addContact(ownerUserId, newContact);
-  res.json({
+
+  return res.json({
     success: true,
     contact: newContact,
-    matchedUser: matchedUser || null,
-    isRegisteredUser: Boolean(matchedUserId && matchedUser?.isPhoneVerified !== false),
+    matchedUser: {
+      id: matchedUser.id,
+      displayName: matchedUser.displayName,
+      avatarUrl: matchedUser.avatarUrl,
+      about: matchedUser.about,
+      phoneNumber: matchedUser.phoneNumber,
+      isOnline: userSockets.has(matchedUser.id) && (userSockets.get(matchedUser.id)?.size || 0) > 0,
+      lastSeen: matchedUser.lastSeen,
+    },
+    isRegisteredUser: true,
   });
 });
 
@@ -2126,7 +2187,13 @@ Maintain context across previous messages in the conversation. Format your respo
       ? `${formattedHistory}\nUser: ${userMessage}\nERROREN AI:`
       : `User: ${userMessage}\nERROREN AI:`;
 
-    const candidateModels = ['gemini-3.8-flash', 'gemini-flash-latest'];
+    const candidateModels = [
+      'gemini-2.5-flash',
+      'gemini-2.0-flash',
+      'gemini-1.5-flash',
+      'gemini-3.8-flash',
+      'gemini-flash-latest',
+    ];
     let lastError: any = null;
 
     for (const model of candidateModels) {
@@ -2197,7 +2264,13 @@ app.post('/api/ai/assist', async (req: Request, res: Response) => {
       prompt = `Given this incoming message: "${context || text}", generate a friendly, short quick reply. Return only the suggested reply text:`;
     }
 
-    const candidateModels = ['gemini-3.8-flash', 'gemini-flash-latest'];
+    const candidateModels = [
+      'gemini-2.5-flash',
+      'gemini-2.0-flash',
+      'gemini-1.5-flash',
+      'gemini-3.8-flash',
+      'gemini-flash-latest',
+    ];
     for (const model of candidateModels) {
       try {
         const aiResponse = await client.models.generateContent({

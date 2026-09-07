@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { User, Contact, UserSettings } from '../types';
 import { safeStorage } from '../utils/safeStorage';
+import { apiFetch } from '../utils/api';
 
 export type AuthStep = 'welcome' | 'google_login' | 'profile' | 'authenticated';
 
@@ -195,7 +196,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const refreshUsers = async () => {
     try {
-      const res = await fetch('/api/users');
+      const res = await apiFetch('/api/users');
       if (res.ok) {
         const list = await res.json();
         if (Array.isArray(list)) {
@@ -210,7 +211,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const refreshContacts = async () => {
     if (!currentUser?.id) return;
     try {
-      const res = await fetch(`/api/contacts?userId=${encodeURIComponent(currentUser.id)}`);
+      const res = await apiFetch(`/api/contacts?userId=${encodeURIComponent(currentUser.id)}`);
       if (res.ok) {
         const list = await res.json();
         if (Array.isArray(list)) {
@@ -289,7 +290,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
 
     try {
-      const res = await fetch('/api/auth/google', {
+      const res = await apiFetch('/api/auth/google', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -400,7 +401,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setError(null);
     const cleanPhone = phoneNumber.trim();
     try {
-      const res = await fetch('/api/auth/phone', {
+      const res = await apiFetch('/api/auth/phone', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -502,7 +503,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
 
     try {
-      const res = await fetch('/api/auth/profile', {
+      const res = await apiFetch('/api/auth/profile', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -563,7 +564,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
 
     try {
-      const res = await fetch('/api/account/phone', {
+      const res = await apiFetch('/api/account/phone', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -601,7 +602,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  // Add Contact
+  // Add Contact - Strictly validates that the phone number belongs to a registered user
   const addContact = async (
     name: string,
     phoneNumber: string,
@@ -610,8 +611,25 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   ): Promise<{ success: boolean; isRegisteredUser: boolean; contact?: Contact; matchedUser?: User; error?: string }> => {
     if (!currentUser) return { success: false, isRegisteredUser: false, error: 'User not logged in' };
     const cleanPhone = (phoneNumber || '').trim();
+    if (!cleanPhone || cleanPhone.replace(/[^0-9]/g, '').length < 7) {
+      return {
+        success: false,
+        isRegisteredUser: false,
+        error: 'Please enter a valid phone number (minimum 7 digits).',
+      };
+    }
+
+    const cleanDigits = cleanPhone.replace(/[^0-9]/g, '');
+    const localMatchedUser = allUsers.find((u) => {
+      const uDigits = (u.phoneNumber || '').replace(/[^0-9]/g, '');
+      return (
+        uDigits.length >= 7 &&
+        (uDigits === cleanDigits || uDigits.endsWith(cleanDigits) || cleanDigits.endsWith(uDigits))
+      );
+    });
+
     try {
-      const res = await fetch('/api/contacts', {
+      const res = await apiFetch('/api/contacts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -623,49 +641,92 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }),
       });
 
-      if (res.ok && res.headers.get('content-type')?.includes('application/json')) {
-        const data = await res.json();
+      const data = await res.json().catch(() => ({}));
+
+      if (res.ok && data.success) {
         await refreshContacts();
         await refreshUsers();
         return {
           success: true,
-          isRegisteredUser: data.isRegisteredUser,
+          isRegisteredUser: true,
           contact: data.contact,
           matchedUser: data.matchedUser,
         };
       }
 
-      // Offline / Static fallback (e.g. GitHub Pages)
-      const fallbackContact: Contact = {
+      if (res.status === 404 || data.error?.includes('not registered')) {
+        return {
+          success: false,
+          isRegisteredUser: false,
+          error: 'This number is not registered on this platform.',
+        };
+      }
+
+      // If server could not be reached (503 / network error) or is offline:
+      if (!localMatchedUser) {
+        return {
+          success: false,
+          isRegisteredUser: false,
+          error: data.error || 'This number is not registered on this platform.',
+        };
+      }
+
+      if (localMatchedUser.id === currentUser.id) {
+        return {
+          success: false,
+          isRegisteredUser: false,
+          error: 'You cannot add your own phone number as a contact.',
+        };
+      }
+
+      const alreadySaved = contacts.some(
+        (c) =>
+          c.contactUserId === localMatchedUser.id ||
+          (c.phoneNumber && c.phoneNumber.replace(/[^0-9]/g, '') === cleanDigits)
+      );
+      if (alreadySaved) {
+        return {
+          success: false,
+          isRegisteredUser: false,
+          error: 'This contact is already in your contacts list.',
+        };
+      }
+
+      const newContact: Contact = {
         id: `cnt_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
-        ownerUserId: currentUser?.id || 'local_user',
-        name: name.trim(),
-        phoneNumber: cleanPhone,
-        avatarUrl: avatarUrl || `https://api.dicebear.com/7.x/bottts/svg?seed=${cleanPhone || name}`,
-        about: about || 'Saved Contact',
+        ownerUserId: currentUser.id,
+        name: name.trim() || localMatchedUser.displayName || `User ${cleanDigits.slice(-4)}`,
+        phoneNumber: localMatchedUser.phoneNumber || cleanPhone,
+        avatarUrl: avatarUrl || localMatchedUser.avatarUrl,
+        about: about || localMatchedUser.about || 'Available | Using ERROREN CHAT ⚡',
+        contactUserId: localMatchedUser.id,
         createdAt: Date.now(),
       };
-      setContacts((prev) => [fallbackContact, ...prev.filter(c => c.phoneNumber !== cleanPhone)]);
+
+      const updated = [...contacts, newContact];
+      setContacts(updated);
+      try {
+        localStorage.setItem(`erroren_contacts_${currentUser.id}`, JSON.stringify(updated));
+      } catch {}
+
       return {
         success: true,
-        isRegisteredUser: false,
-        contact: fallbackContact,
+        isRegisteredUser: true,
+        contact: newContact,
+        matchedUser: localMatchedUser,
       };
     } catch (err: any) {
-      const fallbackContact: Contact = {
-        id: `cnt_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
-        ownerUserId: currentUser?.id || 'local_user',
-        name: name.trim(),
-        phoneNumber: cleanPhone,
-        avatarUrl: avatarUrl || `https://api.dicebear.com/7.x/bottts/svg?seed=${cleanPhone || name}`,
-        about: about || 'Saved Contact',
-        createdAt: Date.now(),
-      };
-      setContacts((prev) => [fallbackContact, ...prev.filter(c => c.phoneNumber !== cleanPhone)]);
+      if (!localMatchedUser) {
+        return {
+          success: false,
+          isRegisteredUser: false,
+          error: 'This number is not registered on this platform.',
+        };
+      }
       return {
-        success: true,
+        success: false,
         isRegisteredUser: false,
-        contact: fallbackContact,
+        error: err.message || 'Unable to connect to server to verify contact.',
       };
     }
   };
@@ -674,7 +735,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const deleteContact = async (contactId: string): Promise<boolean> => {
     if (!currentUser) return false;
     try {
-      const res = await fetch(`/api/contacts/${contactId}?userId=${encodeURIComponent(currentUser.id)}`, {
+      const res = await apiFetch(`/api/contacts/${contactId}?userId=${encodeURIComponent(currentUser.id)}`, {
         method: 'DELETE',
       });
       if (res.ok) {
@@ -683,7 +744,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
       setContacts((prev) => prev.filter((c) => c.id !== contactId));
       return true;
-    } catch (err) {
+    } catch {
       setContacts((prev) => prev.filter((c) => c.id !== contactId));
       return true;
     }

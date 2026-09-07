@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { User, Community } from '../../types';
 import { Avatar } from '../common/Avatar';
 import { Link, X, Loader2, Check, Users, ArrowRight, ShieldCheck } from 'lucide-react';
+import { apiFetch } from '../../utils/api';
 
 interface JoinByInviteModalProps {
   isOpen: boolean;
@@ -47,7 +48,7 @@ export const JoinByInviteModal: React.FC<JoinByInviteModalProps> = ({
     setPreviewCommunity(null);
 
     try {
-      const response = await fetch(`/api/invites/${encodeURIComponent(code)}`);
+      const response = await apiFetch(`/api/invites/${encodeURIComponent(code)}`);
       const data = await response.json();
       if (!response.ok) {
         throw new Error(data.error || 'Community not found or invite is expired.');
@@ -68,7 +69,7 @@ export const JoinByInviteModal: React.FC<JoinByInviteModalProps> = ({
     setError(null);
 
     try {
-      const response = await fetch(`/api/communities/${previewCommunity.id}/join`, {
+      const response = await apiFetch(`/api/communities/${previewCommunity.id}/join`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userId: currentUser.id }),

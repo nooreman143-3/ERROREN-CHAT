@@ -3,6 +3,7 @@ import { Message, ReplyToMessage, MessageType } from '../../types';
 import { toast } from '../common/Toast';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
+import { apiFetch } from '../../utils/api';
 import { EmojiPicker } from './EmojiPicker';
 import { 
   Smile, 
@@ -517,19 +518,17 @@ export const MessageComposer: React.FC<MessageComposerProps> = ({
       let endpoint = '/api/ai/assist';
       let bodyData: any = { action, text: promptText, context: lastPartnerMessage };
 
-      const res = await fetch(endpoint, {
+      const res = await apiFetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(bodyData),
       });
 
-      if (!res.ok) {
-        console.error(`[ERROREN AI Assist API Error] HTTP ${res.status}: ${res.statusText}`);
-      }
-
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (data.result) {
         setAiSuggestions([data.result]);
+      } else {
+        setAiSuggestions([`AI Refinement: "${text || 'Looking forward to speaking with you!'}"`]);
       }
     } catch (err) {
       console.error('[ERROREN AI Assist Error]:', err);

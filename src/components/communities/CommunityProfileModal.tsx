@@ -5,6 +5,7 @@ import { CreateChannelModal } from './CreateChannelModal';
 import { ChannelViewModal } from './ChannelViewModal';
 import { AddMembersModal } from './AddMembersModal';
 import { toast } from '../common/Toast';
+import { apiFetch } from '../../utils/api';
 
 const safeConfirm = (message: string): boolean => {
   try {
@@ -94,7 +95,7 @@ export const CommunityProfileModal: React.FC<CommunityProfileModalProps> = ({
     if (!communityId) return;
     try {
       const url = currentUser ? `/api/communities/${communityId}?userId=${currentUser.id}` : `/api/communities/${communityId}`;
-      const res = await fetch(url);
+      const res = await apiFetch(url);
       const data = await res.json();
       if (res.ok) {
         setCommunity(data);
@@ -131,7 +132,7 @@ export const CommunityProfileModal: React.FC<CommunityProfileModalProps> = ({
   const handleJoinCommunity = async () => {
     if (!currentUser || !community) return;
     try {
-      const res = await fetch(`/api/communities/${community.id}/join`, {
+      const res = await apiFetch(`/api/communities/${community.id}/join`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userId: currentUser.id }),
@@ -155,7 +156,7 @@ export const CommunityProfileModal: React.FC<CommunityProfileModalProps> = ({
     if (!safeConfirm('Are you sure you want to leave this community?')) return;
 
     try {
-      const res = await fetch(`/api/communities/${community.id}/leave`, {
+      const res = await apiFetch(`/api/communities/${community.id}/leave`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userId: currentUser.id }),
@@ -177,7 +178,7 @@ export const CommunityProfileModal: React.FC<CommunityProfileModalProps> = ({
     setIsCreatingGroup(true);
     try {
       const memberIds = (community.members || []).map((m) => m.userId);
-      const res = await fetch('/api/chats', {
+      const res = await apiFetch('/api/chats', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -213,7 +214,7 @@ export const CommunityProfileModal: React.FC<CommunityProfileModalProps> = ({
   const handleLinkGroup = async (groupId: string) => {
     if (!currentUser || !community) return;
     try {
-      const res = await fetch(`/api/communities/${community.id}/link-group`, {
+      const res = await apiFetch(`/api/communities/${community.id}/link-group`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -235,7 +236,7 @@ export const CommunityProfileModal: React.FC<CommunityProfileModalProps> = ({
     if (!safeConfirm('Unlink this group from the community? (The group chat will remain active)')) return;
 
     try {
-      await fetch(`/api/communities/${community.id}/groups/${groupId}`, {
+      await apiFetch(`/api/communities/${community.id}/groups/${groupId}`, {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ requesterId: currentUser.id }),
@@ -249,7 +250,7 @@ export const CommunityProfileModal: React.FC<CommunityProfileModalProps> = ({
   const handleMemberRoleChange = async (targetUserId: string, newRole: 'admin' | 'member') => {
     if (!currentUser || !community || !isOwner) return;
     try {
-      await fetch(`/api/communities/${community.id}/members/${targetUserId}/role`, {
+      await apiFetch(`/api/communities/${community.id}/members/${targetUserId}/role`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -268,7 +269,7 @@ export const CommunityProfileModal: React.FC<CommunityProfileModalProps> = ({
     if (!safeConfirm('Remove this member from the community?')) return;
 
     try {
-      await fetch(`/api/communities/${community.id}/members/${targetUserId}`, {
+      await apiFetch(`/api/communities/${community.id}/members/${targetUserId}`, {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ requesterId: currentUser.id }),
@@ -285,7 +286,7 @@ export const CommunityProfileModal: React.FC<CommunityProfileModalProps> = ({
 
     setIsSavingDetails(true);
     try {
-      const res = await fetch(`/api/communities/${community.id}`, {
+      const res = await apiFetch(`/api/communities/${community.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -313,7 +314,7 @@ export const CommunityProfileModal: React.FC<CommunityProfileModalProps> = ({
     if (!safeConfirm(`Are you sure you want to PERMANENTLY DELETE the community "${community.name}"? This action cannot be undone.`)) return;
 
     try {
-      const res = await fetch(`/api/communities/${community.id}`, {
+      const res = await apiFetch(`/api/communities/${community.id}`, {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ requesterId: currentUser.id }),

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
+import { apiFetch } from '../../utils/api';
 import { Logo } from '../common/Logo';
 import { 
   ArrowLeft, 
@@ -133,7 +134,7 @@ export const GoogleLoginScreen: React.FC = () => {
 
     // Step 1: Pre-flight check email in database to guarantee 1 Email = 1 Account
     try {
-      const checkRes = await fetch(`/api/auth/check-email?email=${encodeURIComponent(cleanEmail)}`);
+      const checkRes = await apiFetch(`/api/auth/check-email?email=${encodeURIComponent(cleanEmail)}`);
       if (checkRes.ok) {
         const { exists } = await checkRes.json();
         

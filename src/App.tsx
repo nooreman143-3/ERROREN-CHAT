@@ -26,6 +26,7 @@ import { EditProfileModal } from './components/settings/EditProfileModal';
 import { Chat, Message, MessageType, ReplyToMessage, StatusStory, CallLog, User } from './types';
 import { ToastContainer } from './components/common/Toast';
 import { MessageSquare, Plus } from 'lucide-react';
+import { apiFetch } from './utils/api';
 
 const MainAppContent: React.FC = () => {
   const { currentUser, authStep, allUsers, refreshUsers, isProfileModalOpen, closeProfileModal } = useAuth();
@@ -62,7 +63,7 @@ const MainAppContent: React.FC = () => {
     if (!currentUser) return;
     try {
       // 1. Fetch Chats
-      const chatRes = await fetch(`/api/chats?userId=${encodeURIComponent(currentUser.id)}`);
+      const chatRes = await apiFetch(`/api/chats?userId=${encodeURIComponent(currentUser.id)}`);
       if (chatRes.ok && chatRes.headers.get('content-type')?.includes('application/json')) {
         const chatData = await chatRes.json();
         if (Array.isArray(chatData)) {
@@ -74,7 +75,7 @@ const MainAppContent: React.FC = () => {
       }
 
       // 2. Fetch Status Stories
-      const statusRes = await fetch('/api/status');
+      const statusRes = await apiFetch('/api/status');
       if (statusRes.ok && statusRes.headers.get('content-type')?.includes('application/json')) {
         const statusData = await statusRes.json();
         if (Array.isArray(statusData)) {
@@ -83,7 +84,7 @@ const MainAppContent: React.FC = () => {
       }
 
       // 3. Fetch Call Logs
-      const callRes = await fetch(`/api/calls?userId=${encodeURIComponent(currentUser.id)}`);
+      const callRes = await apiFetch(`/api/calls?userId=${encodeURIComponent(currentUser.id)}`);
       if (callRes.ok && callRes.headers.get('content-type')?.includes('application/json')) {
         const callData = await callRes.json();
         if (Array.isArray(callData)) {
@@ -103,7 +104,7 @@ const MainAppContent: React.FC = () => {
   useEffect(() => {
     if (!selectedChatId) return;
 
-    fetch(`/api/chats/${selectedChatId}/messages`)
+    apiFetch(`/api/chats/${selectedChatId}/messages`)
       .then(async (res) => {
         if (res.ok && res.headers.get('content-type')?.includes('application/json')) {
           return res.json();
@@ -342,7 +343,7 @@ const MainAppContent: React.FC = () => {
     };
 
     try {
-      const res = await fetch('/api/chats', {
+      const res = await apiFetch('/api/chats', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -377,7 +378,7 @@ const MainAppContent: React.FC = () => {
   // Create New Group
   const handleCreateGroup = async (title: string, description: string, memberIds: string[]) => {
     try {
-      const res = await fetch('/api/chats', {
+      const res = await apiFetch('/api/chats', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -414,7 +415,7 @@ const MainAppContent: React.FC = () => {
     caption?: string
   ) => {
     try {
-      const res = await fetch('/api/status', {
+      const res = await apiFetch('/api/status', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -534,7 +535,7 @@ const MainAppContent: React.FC = () => {
                     setShowGroupInfoDrawer(false);
                   }}
                   onReport={(targetId, reason) => {
-                    fetch('/api/reports', {
+                    apiFetch('/api/reports', {
                       method: 'POST',
                       headers: { 'Content-Type': 'application/json' },
                       body: JSON.stringify({ reportedBy: currentUser.id, targetId, reason }),

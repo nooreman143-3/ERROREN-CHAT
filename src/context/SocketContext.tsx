@@ -1,7 +1,8 @@
-import React, { createContext, useContext, useEffect, useRef, useState, useCallback } from 'react';
+import React, { createContext, useContext, useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { useAuth } from './AuthContext';
 import { Message, StatusStory, CallType, SocketEventPayload, ActiveCall, CallStatus } from '../types';
 import { soundEffects } from '../utils/audio';
+import { apiFetch, getWebSocketUrl } from '../utils/api';
 
 export type ConnectionState = 'connecting' | 'connected' | 'disconnected' | 'reconnecting';
 
@@ -41,31 +42,27 @@ interface SocketContextType {
 
 const SocketContext = createContext<SocketContextType | undefined>(undefined);
 
-function getWebSocketUrl(): string {
-  // 1. Explicit environment variable if configured
-  const envWs = (import.meta.env.VITE_WS_URL || '').trim();
-  if (envWs) return envWs;
-
-  // 2. From backend URL if configured
-  const backend = (import.meta.env.VITE_BACKEND_URL || import.meta.env.VITE_API_URL || '').trim();
-  if (backend) {
-    const proto = backend.startsWith('https:') ? 'wss:' : 'ws:';
-    const host = backend.replace(/^https?:\/\//, '').replace(/\/.*$/, '');
-    return `${proto}//${host}/ws`;
-  }
-
-  // 3. Dynamic resolution from active browser location
-  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  return `${protocol}//${window.location.host}/ws`;
-}
-
 export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { currentUser } = useAuth();
   const socketRef = useRef<WebSocket | null>(null);
-  const [isConnected, setIsConnected] = useState<boolean>(false);
-  const [connectionState, setConnectionState] = useState<ConnectionState>('disconnected');
+  const [isConnected, setIsConnected] = useState<boolean>(() =>
+    typeof navigator !== 'undefined' ? navigator.onLine : true
+  );
+  const [connectionState, setConnectionState] = useState<ConnectionState>(() =>
+    typeof navigator !== 'undefined' && !navigator.onLine ? 'disconnected' : 'connected'
+  );
   const [onlineUserIds, setOnlineUserIds] = useState<Set<string>>(new Set());
   const [typingUsers, setTypingUsers] = useState<{ [chatId: string]: string | null }>({});
+
+  // Ensure current user is always included in online users when online
+  const effectiveOnlineUserIds = useMemo(() => {
+    const set = new Set(onlineUserIds);
+    const isNetOnline = typeof navigator !== 'undefined' ? navigator.onLine : isConnected;
+    if (currentUser?.id && isNetOnline) {
+      set.add(currentUser.id);
+    }
+    return set;
+  }, [onlineUserIds, currentUser?.id, isConnected]);
   
   // Calling State
   const [activeCall, setActiveCall] = useState<ActiveCall | null>(null);
@@ -106,8 +103,12 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       return;
     }
 
+    const isNetOnline = typeof navigator !== 'undefined' ? navigator.onLine : true;
+    setIsConnected(isNetOnline);
+    setConnectionState(isNetOnline ? 'connected' : 'disconnected');
+
     // Initial snapshot of online users via HTTP for immediate presence rendering
-    fetch('/api/presence/online')
+    apiFetch('/api/presence/online')
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
         if (data && Array.isArray(data.onlineUserIds)) {
@@ -124,12 +125,17 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     const connect = () => {
       if (isUnmounted) return;
 
+      const currentNetOnline = typeof navigator !== 'undefined' ? navigator.onLine : true;
+      if (!currentNetOnline) {
+        setIsConnected(false);
+        setConnectionState('disconnected');
+        return;
+      }
+
       // Avoid creating multiple sockets if one is already open or connecting
       if (socketRef.current && (socketRef.current.readyState === WebSocket.OPEN || socketRef.current.readyState === WebSocket.CONNECTING)) {
         return;
       }
-
-      setConnectionState(reconnectAttempts > 0 ? 'reconnecting' : 'connecting');
 
       try {
         const wsUrl = getWebSocketUrl();
@@ -162,28 +168,39 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         };
 
         ws.onclose = () => {
-          setIsConnected(false);
-          setConnectionState('disconnected');
           socketRef.current = null;
-
           if (!isUnmounted) {
-            // Exponential backoff with ceiling of 15 seconds
-            const delay = Math.min(1000 * Math.pow(1.5, reconnectAttempts), 15000);
-            reconnectAttempts++;
-            reconnectTimeout = setTimeout(connect, delay);
+            const netOnline = typeof navigator !== 'undefined' ? navigator.onLine : true;
+            if (netOnline) {
+              // User has active internet connection: keep Online status active while retrying WS in background
+              setIsConnected(true);
+              setConnectionState('connected');
+              const delay = Math.min(2000 * Math.pow(1.5, reconnectAttempts), 25000);
+              reconnectAttempts++;
+              reconnectTimeout = setTimeout(connect, delay);
+            } else {
+              setIsConnected(false);
+              setConnectionState('disconnected');
+            }
           }
         };
 
         ws.onerror = () => {
-          // Socket error handled cleanly via onclose
+          // Handled cleanly via onclose
         };
       } catch (err) {
-        setIsConnected(false);
-        setConnectionState('disconnected');
-        if (!isUnmounted) {
-          const delay = Math.min(1000 * Math.pow(1.5, reconnectAttempts), 15000);
-          reconnectAttempts++;
-          reconnectTimeout = setTimeout(connect, delay);
+        const netOnline = typeof navigator !== 'undefined' ? navigator.onLine : true;
+        if (netOnline) {
+          setIsConnected(true);
+          setConnectionState('connected');
+          if (!isUnmounted) {
+            const delay = Math.min(2000 * Math.pow(1.5, reconnectAttempts), 25000);
+            reconnectAttempts++;
+            reconnectTimeout = setTimeout(connect, delay);
+          }
+        } else {
+          setIsConnected(false);
+          setConnectionState('disconnected');
         }
       }
     };
@@ -200,12 +217,18 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
     // Browser network recovery listeners
     const handleOnline = () => {
+      setIsConnected(true);
+      setConnectionState('connected');
       reconnectAttempts = 0;
       connect();
     };
     const handleOffline = () => {
       setIsConnected(false);
       setConnectionState('disconnected');
+      if (socketRef.current) {
+        socketRef.current.close();
+        socketRef.current = null;
+      }
     };
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
@@ -468,7 +491,7 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       });
 
       // Log call locally
-      fetch('/api/calls/log', {
+      apiFetch('/api/calls/log', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -533,7 +556,7 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       });
 
       // Update call log
-      fetch('/api/calls/log', {
+      apiFetch('/api/calls/log', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -625,7 +648,7 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         isConnected,
         connectionState,
         reconnect,
-        onlineUserIds,
+        onlineUserIds: effectiveOnlineUserIds,
         typingUsers,
         activeCall,
         incomingCall,

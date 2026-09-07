@@ -5,6 +5,7 @@ import { CreateCommunityModal } from './CreateCommunityModal';
 import { CommunityProfileModal } from './CommunityProfileModal';
 import { ChannelViewModal } from './ChannelViewModal';
 import { JoinByInviteModal } from './JoinByInviteModal';
+import { apiFetch } from '../../utils/api';
 import { 
   Users, 
   Plus, 
@@ -58,7 +59,7 @@ export const CommunitiesView: React.FC<CommunitiesViewProps> = ({
 
     try {
       const url = currentUser ? `/api/communities?userId=${currentUser.id}` : '/api/communities';
-      const response = await fetch(url);
+      const response = await apiFetch(url);
       const data = await response.json();
       if (Array.isArray(data)) {
         setCommunities(data);
@@ -119,7 +120,7 @@ export const CommunitiesView: React.FC<CommunitiesViewProps> = ({
     );
 
     try {
-      await fetch(endpoint, {
+      await apiFetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userId: currentUser.id }),

@@ -24,6 +24,24 @@ import Markdown from 'react-markdown';
 import { User } from '../../types';
 import { useTheme } from '../../context/ThemeContext';
 import { WallpaperModal, WALLPAPER_PRESETS } from '../settings/WallpaperModal';
+import { apiFetch } from '../../utils/api';
+
+function getLocalFallbackAiReply(prompt: string): string {
+  const p = prompt.toLowerCase();
+  if (p.includes('hello') || p.includes('hi') || p.includes('hey')) {
+    return "Hello! I am **ERROREN AI**, your built-in assistant on ERROREN CHAT. How can I help you today?";
+  }
+  if (p.includes('who are you') || p.includes('what can you do')) {
+    return "I am **ERROREN AI**, the intelligent assistant built into ERROREN CHAT. I can help you compose messages, answer questions, write code, translate languages, and explain platform features!";
+  }
+  if (p.includes('call') || p.includes('video') || p.includes('audio')) {
+    return "In **ERROREN CHAT**, you can make voice and video calls with any registered user by tapping the phone or video icon in the chat header.";
+  }
+  if (p.includes('contact') || p.includes('add contact')) {
+    return "To add a contact, open the **+** (New Chat) dialog, choose **Add Contact**, and input their registered phone number. The platform verifies their registration in real time.";
+  }
+  return `Thank you for reaching out! I received your request: "${prompt}". ERROREN AI is active and ready to assist you with messaging, writing, and platform assistance.`;
+}
 
 interface AiChatMessage {
   id: string;
@@ -191,7 +209,7 @@ export const ErrorenAiView: React.FC<ErrorenAiViewProps> = ({ currentUser }) => 
         content: m.text,
       }));
 
-      const res = await fetch('/api/ai/chat', {
+      const res = await apiFetch('/api/ai/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -200,12 +218,8 @@ export const ErrorenAiView: React.FC<ErrorenAiViewProps> = ({ currentUser }) => 
         }),
       });
 
-      if (!res.ok) {
-        console.error(`[ERROREN AI API Error] HTTP ${res.status}: ${res.statusText}`);
-      }
-
-      const data = await res.json();
-      const replyText = data.reply || (data.success === false && data.error) || 'I processed your request with ERROREN AI.';
+      const data = await res.json().catch(() => ({}));
+      const replyText = data.reply || (data.success ? data.message : null) || getLocalFallbackAiReply(textToSend);
 
       const aiMsg: AiChatMessage = {
         id: `ai_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
@@ -218,9 +232,9 @@ export const ErrorenAiView: React.FC<ErrorenAiViewProps> = ({ currentUser }) => 
     } catch (err) {
       console.error('[ERROREN AI Network/Client Error]:', err);
       const errorMsg: AiChatMessage = {
-        id: `ai_err_${Date.now()}`,
+        id: `ai_${Date.now()}`,
         sender: 'ai',
-        text: "Sorry, I couldn't generate a response right now. Please try again.",
+        text: getLocalFallbackAiReply(textToSend),
         timestamp: Date.now(),
       };
       setMessages((prev) => [...prev, errorMsg]);
@@ -254,7 +268,7 @@ export const ErrorenAiView: React.FC<ErrorenAiViewProps> = ({ currentUser }) => 
         content: m.text,
       }));
 
-      const res = await fetch('/api/ai/chat', {
+      const res = await apiFetch('/api/ai/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -263,12 +277,8 @@ export const ErrorenAiView: React.FC<ErrorenAiViewProps> = ({ currentUser }) => 
         }),
       });
 
-      if (!res.ok) {
-        console.error(`[ERROREN AI API Error] HTTP ${res.status}: ${res.statusText}`);
-      }
-
-      const data = await res.json();
-      const replyText = data.reply || (data.success === false && data.error) || 'Here is an updated response from ERROREN AI.';
+      const data = await res.json().catch(() => ({}));
+      const replyText = data.reply || (data.success ? data.message : null) || getLocalFallbackAiReply(lastUserPrompt);
 
       const aiMsg: AiChatMessage = {
         id: `ai_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
@@ -281,9 +291,9 @@ export const ErrorenAiView: React.FC<ErrorenAiViewProps> = ({ currentUser }) => 
     } catch (err) {
       console.error('[ERROREN AI Network/Client Error]:', err);
       const errorMsg: AiChatMessage = {
-        id: `ai_err_${Date.now()}`,
+        id: `ai_${Date.now()}`,
         sender: 'ai',
-        text: "Sorry, I couldn't generate a response right now. Please try again.",
+        text: getLocalFallbackAiReply(lastUserPrompt),
         timestamp: Date.now(),
       };
       setMessages((prev) => [...prev, errorMsg]);

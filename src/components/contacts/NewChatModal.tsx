@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { User, Contact } from '../../types';
+import { apiFetch } from '../../utils/api';
 import {
   X,
   Search,
@@ -46,6 +47,76 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({
   const [newContactAvatar, setNewContactAvatar] = useState('');
   const [isSavingContact, setIsSavingContact] = useState(false);
   const [addContactMessage, setAddContactMessage] = useState<{ type: 'success' | 'info' | 'error'; text: string } | null>(null);
+  const [phoneCheckStatus, setPhoneCheckStatus] = useState<{
+    checking: boolean;
+    registered?: boolean;
+    message?: string;
+    matchedUser?: User;
+  }>({ checking: false });
+
+  // Real-time debounce check for phone registration
+  useEffect(() => {
+    const raw = newContactPhone.trim();
+    const digits = raw.replace(/[^0-9]/g, '');
+    if (digits.length < 7) {
+      setPhoneCheckStatus({ checking: false });
+      return;
+    }
+
+    let isCancelled = false;
+    setPhoneCheckStatus({ checking: true });
+
+    const timer = setTimeout(async () => {
+      try {
+        const res = await apiFetch(
+          `/api/users/check-phone?phone=${encodeURIComponent(raw)}&currentUserId=${encodeURIComponent(currentUser?.id || '')}`
+        );
+        if (isCancelled) return;
+        const data = await res.json().catch(() => ({}));
+        if (res.ok && data.registered && data.user) {
+          setPhoneCheckStatus({
+            checking: false,
+            registered: true,
+            message: data.isSelf
+              ? 'This is your own phone number.'
+              : data.alreadySaved
+              ? 'This contact is already in your contacts list.'
+              : `Registered user: ${data.user.displayName}`,
+            matchedUser: data.user,
+          });
+          // Auto-fill contact details if not yet customized
+          if (!newContactName.trim() || newContactName.startsWith('User ')) {
+            setNewContactName(data.user.displayName || '');
+          }
+          if (!newContactAvatar) {
+            setNewContactAvatar(data.user.avatarUrl || '');
+          }
+          if (!newContactAbout && data.user.about) {
+            setNewContactAbout(data.user.about);
+          }
+        } else {
+          setPhoneCheckStatus({
+            checking: false,
+            registered: false,
+            message: data.error || 'This number is not registered on this platform.',
+          });
+        }
+      } catch {
+        if (!isCancelled) {
+          setPhoneCheckStatus({
+            checking: false,
+            registered: false,
+            message: 'Unable to verify phone number right now.',
+          });
+        }
+      }
+    }, 400);
+
+    return () => {
+      isCancelled = true;
+      clearTimeout(timer);
+    };
+  }, [newContactPhone, currentUser?.id]);
 
   // Search users dynamically from server/db
   useEffect(() => {
@@ -61,7 +132,7 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({
     const timer = setTimeout(async () => {
       setIsSearching(true);
       try {
-        const res = await fetch(
+        const res = await apiFetch(
           `/api/users/search?q=${encodeURIComponent(searchQuery.trim())}&currentUserId=${encodeURIComponent(currentUser?.id || '')}`
         );
         if (res.ok) {
@@ -133,14 +204,37 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({
 
   const handleSaveContact = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newContactName.trim()) return;
+    const cleanPhone = newContactPhone.trim();
+    if (!cleanPhone || cleanPhone.replace(/[^0-9]/g, '').length < 7) {
+      setAddContactMessage({
+        type: 'error',
+        text: 'Please enter a valid registered phone number (min 7 digits).',
+      });
+      return;
+    }
+
+    if (phoneCheckStatus.registered === false) {
+      setAddContactMessage({
+        type: 'error',
+        text: phoneCheckStatus.message || 'This number is not registered on this platform.',
+      });
+      return;
+    }
+
+    if (!newContactName.trim()) {
+      setAddContactMessage({
+        type: 'error',
+        text: 'Please provide a name for this contact.',
+      });
+      return;
+    }
 
     setIsSavingContact(true);
     setAddContactMessage(null);
 
     const res = await addContact(
       newContactName.trim(),
-      newContactPhone.trim(),
+      cleanPhone,
       newContactAvatar || undefined,
       newContactAbout.trim() || undefined
     );
@@ -150,12 +244,13 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({
     if (res.success) {
       setAddContactMessage({
         type: 'success',
-        text: `Contact saved! ${newContactName} has been saved to your contacts.`,
+        text: `Contact saved! ${res.contact?.name || newContactName} has been saved to your contacts.`,
       });
       setNewContactName('');
       setNewContactPhone('');
       setNewContactAbout('');
       setNewContactAvatar('');
+      setPhoneCheckStatus({ checking: false });
       setTimeout(() => {
         setAddContactMessage(null);
         setActiveView('list');
@@ -163,7 +258,7 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({
     } else {
       setAddContactMessage({
         type: 'error',
-        text: res.error || 'Failed to save contact. Please try again.',
+        text: res.error || 'This number is not registered on this platform.',
       });
     }
   };
@@ -247,6 +342,39 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({
 
             <div>
               <label className="block text-xs font-semibold text-slate-300 mb-1">
+                Phone Number <span className="text-emerald-400">*</span>
+              </label>
+              <div className="relative">
+                <input
+                  type="tel"
+                  required
+                  placeholder="e.g. 0300 1234567 or +92 300 1234567"
+                  value={newContactPhone}
+                  onChange={(e) => setNewContactPhone(e.target.value)}
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-slate-800 border border-slate-700 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 pr-10"
+                />
+                {phoneCheckStatus.checking && (
+                  <Loader2 className="w-4 h-4 text-emerald-400 animate-spin absolute right-3 top-1/2 -translate-y-1/2" />
+                )}
+              </div>
+              {newContactPhone.trim().replace(/[^0-9]/g, '').length >= 7 && !phoneCheckStatus.checking && (
+                <div className="mt-1.5 text-xs">
+                  {phoneCheckStatus.registered ? (
+                    <span className="text-emerald-400 font-medium flex items-center gap-1">
+                      <Check className="w-3.5 h-3.5" />
+                      {phoneCheckStatus.message}
+                    </span>
+                  ) : (
+                    <span className="text-rose-400 font-medium">
+                      {phoneCheckStatus.message || 'This number is not registered on this platform.'}
+                    </span>
+                  )}
+                </div>
+              )}
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-300 mb-1">
                 Contact Name <span className="text-emerald-400">*</span>
               </label>
               <input
@@ -255,19 +383,6 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({
                 placeholder="e.g. Alex Morgan"
                 value={newContactName}
                 onChange={(e) => setNewContactName(e.target.value)}
-                className="w-full px-3.5 py-2.5 rounded-xl bg-slate-800 border border-slate-700 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1">
-                Phone Number (Optional)
-              </label>
-              <input
-                type="tel"
-                placeholder="e.g. +92 300 1234567"
-                value={newContactPhone}
-                onChange={(e) => setNewContactPhone(e.target.value)}
                 className="w-full px-3.5 py-2.5 rounded-xl bg-slate-800 border border-slate-700 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
               />
             </div>
@@ -286,7 +401,13 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({
             <div className="flex items-center gap-3 pt-2">
               <button
                 type="submit"
-                disabled={isSavingContact || !newContactName.trim()}
+                disabled={
+                  isSavingContact ||
+                  !newContactName.trim() ||
+                  !newContactPhone.trim() ||
+                  phoneCheckStatus.checking ||
+                  phoneCheckStatus.registered === false
+                }
                 className="flex-1 bg-emerald-500 hover:bg-emerald-600 disabled:opacity-50 text-slate-950 font-bold py-2.5 rounded-xl text-xs transition flex items-center justify-center gap-2"
               >
                 {isSavingContact ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Save Contact'}
