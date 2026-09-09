@@ -24,8 +24,18 @@ interface AuthContextType {
   closeProfileModal: () => void;
   isLoading: boolean;
   error: string | null;
+  loginWithCredentials: (
+    identifier: string,
+    password?: string,
+    mode?: 'login' | 'register',
+    displayName?: string,
+    avatarUrl?: string,
+    phoneNumber?: string
+  ) => Promise<{ success: boolean; error?: string; isNewUser?: boolean }>;
   loginWithGoogle: (email: string, displayName?: string, avatarUrl?: string, googleId?: string, mode?: 'login' | 'register' | 'auto') => Promise<boolean>;
   loginWithPhone: (phoneNumber: string, displayName?: string, countryCode?: string, avatarUrl?: string) => Promise<boolean>;
+  initialAuthMode: 'login' | 'register';
+  setInitialAuthMode: (mode: 'login' | 'register') => void;
   updateProfile: (
     displayName: string, 
     about: string, 
@@ -156,6 +166,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setAuthStep('google_login');
   };
 
+  const [initialAuthMode, setInitialAuthMode] = useState<'login' | 'register'>('login');
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [allUsers, setAllUsers] = useState<User[]>([]);
@@ -168,6 +179,126 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const closeProfileModal = () => {
     setIsProfileModalOpen(false);
+  };
+
+  // 0. Email/Username/Password Credentials Login & Registration Handler
+  const loginWithCredentials = async (
+    identifier: string,
+    password?: string,
+    mode: 'login' | 'register' = 'login',
+    displayName?: string,
+    avatarUrl?: string,
+    phoneNumber?: string
+  ): Promise<{ success: boolean; error?: string; isNewUser?: boolean }> => {
+    setIsLoading(true);
+    setError(null);
+    const cleanIdentifier = identifier.trim();
+
+    try {
+      const endpoint = mode === 'register' ? '/api/auth/register' : '/api/auth/login';
+      const payload: any = mode === 'register'
+        ? {
+            email: cleanIdentifier.includes('@') ? cleanIdentifier.toLowerCase() : undefined,
+            username: !cleanIdentifier.includes('@') ? cleanIdentifier.toLowerCase().replace(/^@/, '') : undefined,
+            password: password ? password.trim() : undefined,
+            displayName: displayName?.trim(),
+            avatarUrl,
+            phoneNumber,
+          }
+        : {
+            identifier: cleanIdentifier,
+            password: password ? password.trim() : undefined,
+          };
+
+      const res = await apiFetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      const contentType = res.headers.get('content-type') || '';
+      if (contentType.includes('application/json')) {
+        const data = await res.json();
+        if (res.ok && data.user) {
+          setCurrentUser(data.user);
+          safeStorage.setJSON('erroren_user', data.user);
+          saveToAccountList(data.user);
+          setAuthStep('authenticated');
+
+          await refreshUsers();
+          await refreshContacts();
+          return { success: true, isNewUser: data.isNewUser };
+        } else if (!data.offline && res.status !== 503 && res.status !== 404) {
+          const errMsg = data.error || (mode === 'register' ? 'Registration failed.' : 'Login failed.');
+          setError(errMsg);
+          return { success: false, error: errMsg };
+        }
+      }
+
+      if (!res.ok && res.status !== 404 && res.status !== 503) {
+        const errMsg = mode === 'register' ? 'Registration server error.' : 'Login server error.';
+        setError(errMsg);
+        return { success: false, error: errMsg };
+      }
+
+      // Offline / Static fallback (e.g. GitHub Pages static deploy)
+      const isEmail = cleanIdentifier.includes('@');
+      const cleanEmail = isEmail ? cleanIdentifier.toLowerCase() : `${cleanIdentifier.toLowerCase().replace(/^@/, '')}@erroren.chat`;
+      const cleanUsername = !isEmail ? cleanIdentifier.toLowerCase().replace(/^@/, '') : cleanIdentifier.split('@')[0];
+
+      const existingUser = (allUsers || []).find(
+        (u) => (u.email && u.email.toLowerCase() === cleanEmail) ||
+               (u.username && u.username.toLowerCase() === cleanUsername)
+      ) || savedAccounts.find(
+        (u) => (u.email && u.email.toLowerCase() === cleanEmail) ||
+               (u.username && u.username.toLowerCase() === cleanUsername)
+      );
+
+      if (mode === 'register' && existingUser) {
+        const errMsg = 'An account with this email/username already exists. Please sign in.';
+        setError(errMsg);
+        return { success: false, error: errMsg };
+      }
+
+      if (mode === 'login') {
+        if (!existingUser && allUsers.length > 0) {
+          const errMsg = 'No account found with this email or username. Please register first.';
+          setError(errMsg);
+          return { success: false, error: errMsg };
+        }
+        if (existingUser && existingUser.password && password && existingUser.password !== password.trim()) {
+          const errMsg = 'Incorrect password. Please verify and try again.';
+          setError(errMsg);
+          return { success: false, error: errMsg };
+        }
+      }
+
+      const targetUser: User = existingUser || {
+        id: `usr_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+        email: cleanEmail,
+        username: cleanUsername,
+        password: password ? password.trim() : undefined,
+        displayName: displayName?.trim() || cleanUsername || 'ERROREN Member',
+        about: 'Available | Using ERROREN CHAT ⚡',
+        avatarUrl: avatarUrl || `https://api.dicebear.com/7.x/bottts/svg?seed=${cleanUsername}`,
+        isOnline: true,
+        lastSeen: Date.now(),
+        role: 'user',
+        createdAt: Date.now(),
+      };
+
+      setCurrentUser(targetUser);
+      safeStorage.setJSON('erroren_user', targetUser);
+      saveToAccountList(targetUser);
+      setAuthStep('authenticated');
+      return { success: true, isNewUser: !existingUser };
+    } catch (err: any) {
+      const errMsg = err.message || 'Authentication error. Please try again.';
+      setError(errMsg);
+      return { success: false, error: errMsg };
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const hasName = Boolean(
@@ -800,8 +931,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         closeProfileModal,
         isLoading,
         error,
+        loginWithCredentials,
         loginWithGoogle,
         loginWithPhone,
+        initialAuthMode,
+        setInitialAuthMode,
         updateProfile,
         savePhoneNumber,
         contacts,

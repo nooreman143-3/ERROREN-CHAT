@@ -6,6 +6,7 @@ export interface StoredUser {
   email?: string;
   googleId?: string;
   username?: string;
+  password?: string;
   phoneNumber?: string;
   countryCode?: string;
   isPhoneVerified?: boolean;
@@ -358,6 +359,48 @@ export const db = {
     return null;
   },
 
+  getUserByUsername(username: string): StoredUser | null {
+    if (!username) return null;
+    const cleanUsername = username.trim().toLowerCase().replace(/^@/, '');
+    for (const u of Object.values(dbState.users)) {
+      if (u.username && u.username.trim().toLowerCase().replace(/^@/, '') === cleanUsername) {
+        return u;
+      }
+    }
+    return null;
+  },
+
+  getUserByIdentifier(identifier: string): StoredUser | null {
+    if (!identifier) return null;
+    const clean = identifier.trim().toLowerCase();
+    const cleanTarget = clean.replace(/[^0-9]/g, '');
+
+    for (const u of Object.values(dbState.users)) {
+      // 1. Check Email
+      if (u.email && u.email.trim().toLowerCase() === clean) {
+        return u;
+      }
+      // 2. Check Username
+      if (u.username && u.username.trim().toLowerCase().replace(/^@/, '') === clean.replace(/^@/, '')) {
+        return u;
+      }
+      // 3. Check Phone Number
+      if (u.phoneNumber && cleanTarget.length >= 6) {
+        const cleanPhone = u.phoneNumber.replace(/[^0-9]/g, '');
+        const cleanUserFull = ((u.countryCode || '') + u.phoneNumber).replace(/[^0-9]/g, '');
+        if (
+          cleanPhone === cleanTarget ||
+          cleanUserFull === cleanTarget ||
+          matchPhoneNumbers(cleanTarget, cleanPhone) ||
+          matchPhoneNumbers(cleanTarget, cleanUserFull)
+        ) {
+          return u;
+        }
+      }
+    }
+    return null;
+  },
+
   getUserByGoogleId(googleId: string): StoredUser | null {
     for (const u of Object.values(dbState.users)) {
       if (u.googleId && u.googleId === googleId) {
@@ -394,6 +437,18 @@ export const db = {
     for (const u of Object.values(dbState.users)) {
       if (excludeUserId && u.id === excludeUserId) continue;
       if (u.email && u.email.trim().toLowerCase() === cleanEmail) {
+        return true;
+      }
+    }
+    return false;
+  },
+
+  isUsernameTaken(username: string, excludeUserId?: string): boolean {
+    if (!username) return false;
+    const cleanUsername = username.trim().toLowerCase().replace(/^@/, '');
+    for (const u of Object.values(dbState.users)) {
+      if (excludeUserId && u.id === excludeUserId) continue;
+      if (u.username && u.username.trim().toLowerCase().replace(/^@/, '') === cleanUsername) {
         return true;
       }
     }
@@ -473,6 +528,13 @@ export const db = {
       }
     }
 
+    if (user.username) {
+      const cleanUsername = user.username.trim().toLowerCase().replace(/^@/, '');
+      if (cleanUsername.length > 0 && this.isUsernameTaken(cleanUsername, user.id)) {
+        throw new Error('This username is already taken. Please choose a different username.');
+      }
+    }
+
     if (user.phoneNumber) {
       const cleanPhone = user.phoneNumber.replace(/[^0-9]/g, '');
       if (cleanPhone.length > 0 && this.isPhoneTaken(cleanPhone, user.id)) {
@@ -494,6 +556,13 @@ export const db = {
       const cleanEmail = updates.email.trim().toLowerCase();
       if (this.isEmailTaken(cleanEmail, id)) {
         throw new Error('An account with this email already exists. Please log in to your existing account.');
+      }
+    }
+
+    if (updates.username) {
+      const cleanUsername = updates.username.trim().toLowerCase().replace(/^@/, '');
+      if (cleanUsername.length > 0 && this.isUsernameTaken(cleanUsername, id)) {
+        throw new Error('This username is already taken. Please choose a different username.');
       }
     }
 

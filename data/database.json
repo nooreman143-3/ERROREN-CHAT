@@ -28,6 +28,47 @@
       "lastSeen": 1788683625251,
       "role": "user",
       "createdAt": 1788683625251
+    },
+    "usr_g_1788977611978_g8y1": {
+      "id": "usr_g_1788977611978_g8y1",
+      "email": "testuser99@gmail.com",
+      "googleId": "gid_1788977611978",
+      "displayName": "Test User 99",
+      "about": "Available | Using ERROREN CHAT ⚡",
+      "avatarUrl": "https://api.dicebear.com/7.x/bottts/svg?seed=usr_g_1788977611978_g8y1",
+      "isOnline": true,
+      "lastSeen": 1788977613632,
+      "role": "user",
+      "createdAt": 1788977611978,
+      "updatedAt": 1788977613632
+    },
+    "usr_1788977741968_5mfdt": {
+      "id": "usr_1788977741968_5mfdt",
+      "email": "testuser@example.com",
+      "password": "mypassword123",
+      "countryCode": "+92",
+      "displayName": "Test Person",
+      "about": "Available | Using ERROREN CHAT ⚡",
+      "avatarUrl": "https://api.dicebear.com/7.x/bottts/svg?seed=usr_1788977741968_5mfdt",
+      "isOnline": true,
+      "lastSeen": 1788977744414,
+      "role": "user",
+      "createdAt": 1788977741968,
+      "updatedAt": 1788977744414
+    },
+    "usr_1788977917668_b0hin": {
+      "id": "usr_1788977917668_b0hin",
+      "email": "testperson@example.com",
+      "password": "mypassword123",
+      "countryCode": "+92",
+      "displayName": "Test Person",
+      "about": "Available | Using ERROREN CHAT ⚡",
+      "avatarUrl": "https://api.dicebear.com/7.x/bottts/svg?seed=usr_1788977917668_b0hin",
+      "isOnline": true,
+      "lastSeen": 1788977919342,
+      "role": "user",
+      "createdAt": 1788977917668,
+      "updatedAt": 1788977919342
     }
   },
   "contacts": {},

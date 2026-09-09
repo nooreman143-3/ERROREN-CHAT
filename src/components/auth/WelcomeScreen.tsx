@@ -9,11 +9,13 @@ import {
   Moon, 
   ShieldCheck, 
   ArrowRight,
-  Lock
+  Lock,
+  UserPlus,
+  LogIn
 } from 'lucide-react';
 
 export const WelcomeScreen: React.FC = () => {
-  const { setAuthStep } = useAuth();
+  const { setAuthStep, setInitialAuthMode } = useAuth();
 
   const features = [
     {
@@ -63,12 +65,24 @@ export const WelcomeScreen: React.FC = () => {
       {/* Header */}
       <header className="relative z-10 flex items-center justify-between max-w-6xl mx-auto w-full pt-2">
         <Logo size="lg" />
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 sm:gap-3">
           <button
-            onClick={() => setAuthStep('google_login')}
-            className="text-xs sm:text-sm font-semibold text-emerald-400 hover:text-emerald-300 px-4 py-2 rounded-xl transition border border-emerald-500/30 bg-emerald-950/40 hover:bg-emerald-900/40 flex items-center gap-2"
+            onClick={() => {
+              setInitialAuthMode('login');
+              setAuthStep('google_login');
+            }}
+            className="text-xs sm:text-sm font-semibold text-slate-300 hover:text-white px-3 py-2 rounded-xl transition"
           >
-            <span>Sign In</span>
+            Sign In
+          </button>
+          <button
+            onClick={() => {
+              setInitialAuthMode('register');
+              setAuthStep('google_login');
+            }}
+            className="text-xs sm:text-sm font-semibold text-emerald-400 hover:text-emerald-300 px-3.5 py-2 rounded-xl transition border border-emerald-500/30 bg-emerald-950/40 hover:bg-emerald-900/40 flex items-center gap-1.5"
+          >
+            <span>Create Account</span>
             <ArrowRight className="w-3.5 h-3.5" />
           </button>
         </div>
@@ -92,14 +106,28 @@ export const WelcomeScreen: React.FC = () => {
           Experience ultra-responsive real-time messaging, crystal-clear voice and video calling, 24-hour status stories, and your dedicated ERROREN AI assistant.
         </p>
 
-        {/* Primary Action Button: Continue with Google */}
-        <div className="mt-8 flex flex-col sm:flex-row items-center gap-4 w-full max-w-sm justify-center">
+        {/* Primary Action Buttons: Sign In / Register / Google */}
+        <div className="mt-8 flex flex-col sm:flex-row items-center gap-3 w-full max-w-md justify-center">
           <button
-            onClick={() => setAuthStep('google_login')}
-            className="w-full flex items-center justify-center gap-3 bg-white hover:bg-slate-100 text-slate-900 font-bold px-6 py-3.5 rounded-2xl shadow-xl shadow-white/10 transition-all hover:scale-[1.02] active:scale-[0.98]"
+            onClick={() => {
+              setInitialAuthMode('login');
+              setAuthStep('google_login');
+            }}
+            className="w-full sm:w-auto flex-1 flex items-center justify-center gap-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold px-6 py-3.5 rounded-2xl shadow-xl shadow-emerald-500/20 transition-all hover:scale-[1.02] active:scale-[0.98] text-sm"
+          >
+            <LogIn className="w-4 h-4" />
+            <span>Sign In / Register</span>
+          </button>
+
+          <button
+            onClick={() => {
+              setInitialAuthMode('login');
+              setAuthStep('google_login');
+            }}
+            className="w-full sm:w-auto flex items-center justify-center gap-2.5 bg-white hover:bg-slate-100 text-slate-900 font-bold px-5 py-3.5 rounded-2xl shadow-xl shadow-white/10 transition-all hover:scale-[1.02] active:scale-[0.98] text-sm"
           >
             {/* Google G Icon */}
-            <svg className="w-5 h-5" viewBox="0 0 24 24">
+            <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24">
               <path
                 fill="#4285F4"
                 d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.82-2.4 3.68v3.05h3.88c2.27-2.09 3.66-5.17 3.66-9.17z"
@@ -117,7 +145,7 @@ export const WelcomeScreen: React.FC = () => {
                 d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.34 0 3.26 2.64 1.25 6.58l4.03 3.15c.95-2.83 3.6-4.98 6.72-4.98z"
               />
             </svg>
-            <span className="text-sm font-semibold">Continue with Google</span>
+            <span>Google</span>
           </button>
         </div>
 

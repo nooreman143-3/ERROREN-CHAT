@@ -400,7 +400,142 @@ app.get('/api/health', (req: Request, res: Response) => {
   });
 });
 
-// 1. Google Authentication Route ("Continue with Google")
+// 1. Standard Registration Route ("Create Account")
+app.post('/api/auth/register', (req: Request, res: Response) => {
+  const { email, username, password, displayName, phoneNumber, countryCode, avatarUrl } = req.body;
+
+  const rawEmail = (email || '').trim().toLowerCase();
+  const rawUsername = (username || '').trim().toLowerCase().replace(/^@/, '');
+  const cleanPhone = (phoneNumber || '').replace(/[^0-9]/g, '');
+
+  if (!rawEmail && !rawUsername && !cleanPhone) {
+    return res.status(400).json({ error: 'Please provide an email address or username.' });
+  }
+
+  // Derive a valid email if none was provided
+  const finalEmail = rawEmail || (rawUsername ? `${rawUsername}@erroren.chat` : undefined);
+
+  // Check if email already taken
+  if (finalEmail && db.isEmailTaken(finalEmail)) {
+    return res.status(409).json({
+      error: 'An account with this email already exists. Please sign in.',
+      code: 'EMAIL_ALREADY_EXISTS',
+      exists: true,
+    });
+  }
+
+  // Check if username already taken
+  if (rawUsername && db.isUsernameTaken(rawUsername)) {
+    return res.status(409).json({
+      error: 'This username is already taken. Please choose a different username.',
+      code: 'USERNAME_TAKEN',
+      exists: true,
+    });
+  }
+
+  // Check if phone number already taken
+  if (cleanPhone && cleanPhone.length >= 6 && db.isPhoneTaken(cleanPhone)) {
+    return res.status(409).json({
+      error: 'This phone number is already associated with another account.',
+      code: 'PHONE_ALREADY_EXISTS',
+      exists: true,
+    });
+  }
+
+  const userId = `usr_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+  const finalDisplayName = (displayName || '').trim() || (rawUsername ? `@${rawUsername}` : finalEmail?.split('@')[0]) || 'ERROREN Member';
+  const finalAvatar = avatarUrl || `https://api.dicebear.com/7.x/bottts/svg?seed=${userId}`;
+
+  try {
+    const newUser = db.createUser({
+      id: userId,
+      email: finalEmail,
+      username: rawUsername || undefined,
+      password: password ? String(password).trim() : undefined,
+      phoneNumber: cleanPhone ? phoneNumber.trim() : undefined,
+      countryCode: countryCode || '+92',
+      displayName: finalDisplayName,
+      about: 'Available | Using ERROREN CHAT ⚡',
+      avatarUrl: finalAvatar,
+      isOnline: true,
+      lastSeen: Date.now(),
+      role: 'user',
+      createdAt: Date.now(),
+    });
+
+    if (newUser.phoneNumber) {
+      db.linkContactsToUser(newUser);
+    }
+
+    res.json({
+      success: true,
+      token: `sess_token_${newUser.id}_${Date.now()}`,
+      user: newUser,
+      isProfileComplete: true,
+      isNewUser: true,
+    });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message || 'Registration failed. Please try again.' });
+  }
+});
+
+// 2. Standard Login Route ("Sign In")
+app.post('/api/auth/login', (req: Request, res: Response) => {
+  const { identifier, email, username, password } = req.body;
+  const target = (identifier || email || username || '').trim();
+
+  if (!target) {
+    return res.status(400).json({ error: 'Please enter your email, username, or phone number.' });
+  }
+
+  let user = db.getUserByIdentifier(target);
+  if (!user && target.includes('@')) {
+    user = db.getUserByEmail(target.toLowerCase());
+  }
+  if (!user) {
+    user = db.getUserByUsername(target.toLowerCase());
+  }
+
+  if (!user) {
+    return res.status(404).json({
+      error: 'No account found with this email or username. Please check your credentials or register a new account.',
+      code: 'USER_NOT_FOUND',
+      notFound: true,
+    });
+  }
+
+  // Password verification
+  if (user.password) {
+    const enteredPassword = (password || '').trim();
+    if (!enteredPassword || user.password !== enteredPassword) {
+      return res.status(401).json({
+        error: 'Incorrect password. Please verify and try again.',
+        code: 'INVALID_PASSWORD',
+      });
+    }
+  } else if (password && password.trim().length > 0) {
+    // If account had no password (e.g. created via Google), attach password for future login
+    user = db.updateUser(user.id, {
+      password: password.trim(),
+    })!;
+  }
+
+  // Update presence
+  user = db.updateUser(user.id, {
+    isOnline: true,
+    lastSeen: Date.now(),
+  })!;
+
+  res.json({
+    success: true,
+    token: `sess_token_${user.id}_${Date.now()}`,
+    user,
+    isProfileComplete: true,
+    isNewUser: false,
+  });
+});
+
+// 3. Google Authentication Route ("Continue with Google")
 app.post('/api/auth/google', (req: Request, res: Response) => {
   const { email, displayName, avatarUrl, googleId, mode } = req.body;
 
@@ -413,26 +548,15 @@ app.post('/api/auth/google', (req: Request, res: Response) => {
   let user = db.getUserByEmail(cleanEmail);
   let isNew = false;
 
-  // Enforce Registration vs Login constraints
-  if (mode === 'register') {
-    if (user) {
-      return res.status(409).json({
-        error: 'An account with this email already exists. Please log in to your existing account.',
-        code: 'EMAIL_ALREADY_EXISTS',
-        exists: true,
-      });
-    }
-  } else if (mode === 'login') {
-    if (!user) {
-      return res.status(404).json({
-        error: 'No account found with this email. Please create an account first.',
-        code: 'USER_NOT_FOUND',
-        notFound: true,
-      });
-    }
-  }
-
-  if (!user) {
+  // Seamless Google flow: if user exists, log in; if user doesn't exist, create account!
+  if (mode === 'register' && user) {
+    // If user already exists and clicks register, log them in smoothly without failing
+    user = db.updateUser(user.id, {
+      isOnline: true,
+      lastSeen: Date.now(),
+      googleId: googleId || user.googleId,
+    })!;
+  } else if (!user) {
     isNew = true;
     const userId = `usr_g_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
     const initialName = displayName?.trim() || cleanEmail.split('@')[0];
@@ -452,13 +576,16 @@ app.post('/api/auth/google', (req: Request, res: Response) => {
         createdAt: Date.now(),
       });
     } catch (err: any) {
-      return res.status(409).json({
-        error: 'An account with this email already exists. Please log in to your existing account.',
-        code: 'EMAIL_ALREADY_EXISTS',
-      });
+      // Fallback: look up in case of race condition
+      user = db.getUserByEmail(cleanEmail);
+      if (!user) {
+        return res.status(400).json({
+          error: 'Could not create account. Please try again.',
+        });
+      }
     }
   } else {
-    // Existing user login - update presence and OAuth token without modifying existing uniqueness
+    // Existing user login
     user = db.updateUser(user.id, {
       isOnline: true,
       lastSeen: Date.now(),
@@ -470,8 +597,7 @@ app.post('/api/auth/google', (req: Request, res: Response) => {
   const isProfileComplete = Boolean(
     user.displayName &&
     user.displayName.trim().length > 0 &&
-    user.displayName !== 'New Member' &&
-    !isNew
+    user.displayName !== 'New Member'
   );
 
   res.json({

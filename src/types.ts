@@ -37,6 +37,7 @@ export interface User {
   email?: string;
   googleId?: string;
   username?: string;
+  password?: string;
   phoneNumber?: string;
   countryCode?: string;
   isPhoneVerified?: boolean;
