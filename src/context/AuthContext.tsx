@@ -319,13 +319,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           await refreshUsers();
           await refreshContacts();
           return true;
-        } else if (!data.offline && res.status !== 503) {
+        } else if (!data.offline && res.status !== 503 && res.status !== 404) {
           setError(data.error || 'Authentication failed. Please try again.');
           return false;
         }
       }
 
-      if (!res.ok) {
+      if (!res.ok && res.status !== 404 && res.status !== 503) {
         setError('Authentication server error. Please try again.');
         return false;
       }

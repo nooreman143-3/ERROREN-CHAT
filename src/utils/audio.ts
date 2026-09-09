@@ -28,6 +28,7 @@ class SoundSynthesizer {
   public playMessageReceived() {
     try {
       const ctx = this.getContext();
+      if (!ctx) return;
       const now = ctx.currentTime;
       
       const osc1 = ctx.createOscillator();
@@ -62,6 +63,7 @@ class SoundSynthesizer {
   public playMessageSent() {
     try {
       const ctx = this.getContext();
+      if (!ctx) return;
       const now = ctx.currentTime;
 
       const osc = ctx.createOscillator();
@@ -88,6 +90,7 @@ class SoundSynthesizer {
     const playBurst = () => {
       try {
         const ctx = this.getContext();
+        if (!ctx) return;
         const now = ctx.currentTime;
 
         const osc1 = ctx.createOscillator();
@@ -136,6 +139,7 @@ class SoundSynthesizer {
     const playTone = () => {
       try {
         const ctx = this.getContext();
+        if (!ctx) return;
         const now = ctx.currentTime;
 
         const osc = ctx.createOscillator();
@@ -171,6 +175,7 @@ class SoundSynthesizer {
   public playCallConnected() {
     try {
       const ctx = this.getContext();
+      if (!ctx) return;
       const now = ctx.currentTime;
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();

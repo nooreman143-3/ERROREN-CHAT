@@ -2188,17 +2188,16 @@ Maintain context across previous messages in the conversation. Format your respo
       : `User: ${userMessage}\nERROREN AI:`;
 
     const candidateModels = [
-      'gemini-2.5-flash',
-      'gemini-2.0-flash',
-      'gemini-1.5-flash',
+      'gemini-3.6-flash',
       'gemini-3.8-flash',
       'gemini-flash-latest',
+      'gemini-3.1-flash-lite',
     ];
     let lastError: any = null;
 
     for (const model of candidateModels) {
       try {
-        const aiResponse = await client.models.generateContent({
+        const generatePromise = client.models.generateContent({
           model,
           contents: prompt,
           config: {
@@ -2207,16 +2206,24 @@ Maintain context across previous messages in the conversation. Format your respo
           },
         });
 
+        const timeoutPromise = new Promise((_, reject) =>
+          setTimeout(() => reject(new Error(`Model ${model} call timed out`)), 2500)
+        );
+
+        const aiResponse: any = await Promise.race([generatePromise, timeoutPromise]);
+
         if (aiResponse && aiResponse.text) {
           return res.json({ success: true, reply: aiResponse.text, isFallback: false });
         }
       } catch (err: any) {
         lastError = err;
-        console.warn(`[ERROREN AI] Model ${model} generation attempt failed:`, err?.message || err);
+        const errMsg = err?.message || String(err);
+        // Spikes in demand (503) or not found (404) trigger immediate fallback to next model
+        console.warn(`[ERROREN AI] Model ${model} generation attempt failed:`, errMsg);
       }
     }
 
-    console.error('[ERROREN AI Production Error] All Gemini candidate models failed:', lastError?.message || lastError);
+    console.warn('[ERROREN AI Notice] Candidate Gemini models temporarily busy or unavailable, serving intelligent fallback:', lastError?.message || lastError);
   } else {
     console.warn('[ERROREN AI Production Warning] No Gemini client initialized. Check GEMINI_API_KEY environment variable.');
   }
@@ -2265,18 +2272,23 @@ app.post('/api/ai/assist', async (req: Request, res: Response) => {
     }
 
     const candidateModels = [
-      'gemini-2.5-flash',
-      'gemini-2.0-flash',
-      'gemini-1.5-flash',
+      'gemini-3.6-flash',
       'gemini-3.8-flash',
       'gemini-flash-latest',
+      'gemini-3.1-flash-lite',
     ];
     for (const model of candidateModels) {
       try {
-        const aiResponse = await client.models.generateContent({
+        const generatePromise = client.models.generateContent({
           model,
           contents: prompt,
         });
+
+        const timeoutPromise = new Promise((_, reject) =>
+          setTimeout(() => reject(new Error(`Model ${model} call timed out`)), 2500)
+        );
+
+        const aiResponse: any = await Promise.race([generatePromise, timeoutPromise]);
 
         if (aiResponse && aiResponse.text) {
           return res.json({ success: true, result: aiResponse.text.trim() });
