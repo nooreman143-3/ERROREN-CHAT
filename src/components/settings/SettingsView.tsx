@@ -64,7 +64,7 @@ export const SettingsView: React.FC = () => {
     profileCompletionDetails,
     isProfileModalOpen,
     setIsProfileModalOpen,
-    openProfileModal
+    openProfileModal,
   } = useAuth();
   const { 
     theme, 

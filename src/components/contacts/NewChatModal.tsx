@@ -2,6 +2,8 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { User, Contact } from '../../types';
 import { apiFetch } from '../../utils/api';
+import { findUserByPhone } from '../../services/supabaseChat';
+import { formatPhoneDisplay } from '../../utils/phoneUtils';
 import {
   X,
   Search,
@@ -12,11 +14,15 @@ import {
   Video,
   Share2,
   Check,
+  CheckCircle2,
   Loader2,
   Camera,
   ArrowRight,
   ExternalLink,
   Trash2,
+  AlertCircle,
+  UserCheck,
+  Sparkles,
 } from 'lucide-react';
 
 interface NewChatModalProps {
@@ -68,6 +74,39 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({
 
     const timer = setTimeout(async () => {
       try {
+        // 1. Check Supabase first for registered account
+        const sbResult = await findUserByPhone(raw, currentUser?.id);
+        if (isCancelled) return;
+
+        if (sbResult.registered && sbResult.user) {
+          const alreadySaved = contacts.some(
+            (c) => c.contactUserId === sbResult.user?.id || (c.phoneNumber && c.phoneNumber.replace(/[^0-9]/g, '') === digits)
+          );
+          setPhoneCheckStatus({
+            checking: false,
+            registered: true,
+            message: sbResult.isSelf
+              ? 'This is your own registered phone number.'
+              : alreadySaved
+              ? 'This contact is already in your contacts list.'
+              : 'ERROREN CHAT user found',
+            matchedUser: sbResult.user,
+          });
+
+          // Auto-fill contact details if not yet customized
+          if (!newContactName.trim() || newContactName.startsWith('User ')) {
+            setNewContactName(sbResult.user.displayName || '');
+          }
+          if (!newContactAvatar) {
+            setNewContactAvatar(sbResult.user.avatarUrl || '');
+          }
+          if (!newContactAbout && sbResult.user.about) {
+            setNewContactAbout(sbResult.user.about);
+          }
+          return;
+        }
+
+        // 2. Fallback to API check
         const res = await apiFetch(
           `/api/users/check-phone?phone=${encodeURIComponent(raw)}&currentUserId=${encodeURIComponent(currentUser?.id || '')}`
         );
@@ -78,10 +117,10 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({
             checking: false,
             registered: true,
             message: data.isSelf
-              ? 'This is your own phone number.'
+              ? 'This is your own registered phone number.'
               : data.alreadySaved
               ? 'This contact is already in your contacts list.'
-              : `Registered user: ${data.user.displayName}`,
+              : 'ERROREN CHAT user found',
             matchedUser: data.user,
           });
           // Auto-fill contact details if not yet customized
@@ -98,7 +137,7 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({
           setPhoneCheckStatus({
             checking: false,
             registered: false,
-            message: data.error || 'This number is not registered on this platform.',
+            message: 'This number is not registered on ERROREN CHAT.',
           });
         }
       } catch {
@@ -106,11 +145,11 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({
           setPhoneCheckStatus({
             checking: false,
             registered: false,
-            message: 'Unable to verify phone number right now.',
+            message: 'This number is not registered on ERROREN CHAT.',
           });
         }
       }
-    }, 400);
+    }, 300);
 
     return () => {
       isCancelled = true;
@@ -348,26 +387,109 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({
                 <input
                   type="tel"
                   required
-                  placeholder="e.g. 0300 1234567 or +92 300 1234567"
+                  placeholder="e.g. 0339 9951515 or +92 339 9951515"
                   value={newContactPhone}
                   onChange={(e) => setNewContactPhone(e.target.value)}
-                  className="w-full px-3.5 py-2.5 rounded-xl bg-slate-800 border border-slate-700 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 pr-10"
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-slate-800 border border-slate-700 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 pr-10 font-mono"
                 />
                 {phoneCheckStatus.checking && (
                   <Loader2 className="w-4 h-4 text-emerald-400 animate-spin absolute right-3 top-1/2 -translate-y-1/2" />
                 )}
               </div>
+
+              {/* Status Display: Registered Profile Card or Unregistered Warning */}
               {newContactPhone.trim().replace(/[^0-9]/g, '').length >= 7 && !phoneCheckStatus.checking && (
-                <div className="mt-1.5 text-xs">
-                  {phoneCheckStatus.registered ? (
-                    <span className="text-emerald-400 font-medium flex items-center gap-1">
-                      <Check className="w-3.5 h-3.5" />
-                      {phoneCheckStatus.message}
-                    </span>
+                <div className="mt-3">
+                  {phoneCheckStatus.registered && phoneCheckStatus.matchedUser ? (
+                    <div className="space-y-3">
+                      {/* Verified Badge */}
+                      <div className="p-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs flex items-center justify-between">
+                        <div className="flex items-center gap-1.5 font-semibold">
+                          <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                          <span>ERROREN CHAT user found</span>
+                        </div>
+                        {phoneCheckStatus.matchedUser.isOnline ? (
+                          <span className="text-[10px] text-emerald-400 bg-emerald-500/20 px-2 py-0.5 rounded-full font-medium">
+                            Online
+                          </span>
+                        ) : (
+                          <span className="text-[10px] text-slate-400 font-medium">Registered</span>
+                        )}
+                      </div>
+
+                      {/* WhatsApp-Style User Profile Preview */}
+                      <div className="p-3.5 rounded-2xl bg-slate-800/80 border border-slate-700/80 flex items-center gap-3">
+                        <div className="relative shrink-0">
+                          <img
+                            src={
+                              phoneCheckStatus.matchedUser.avatarUrl ||
+                              `https://api.dicebear.com/7.x/bottts/svg?seed=${phoneCheckStatus.matchedUser.id}`
+                            }
+                            alt={phoneCheckStatus.matchedUser.displayName}
+                            className="w-12 h-12 rounded-full object-cover bg-slate-900 border border-slate-700"
+                          />
+                          {phoneCheckStatus.matchedUser.isOnline && (
+                            <span className="absolute bottom-0 right-0 w-3.5 h-3.5 rounded-full bg-emerald-500 border-2 border-slate-900" />
+                          )}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2">
+                            <h4 className="text-sm font-bold text-white truncate">
+                              {phoneCheckStatus.matchedUser.displayName}
+                            </h4>
+                            {phoneCheckStatus.matchedUser.username && (
+                              <span className="text-[11px] text-slate-400 font-mono">
+                                @{phoneCheckStatus.matchedUser.username}
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-xs font-mono text-emerald-400/90 mt-0.5">
+                            {formatPhoneDisplay(phoneCheckStatus.matchedUser.phoneNumber || newContactPhone)}
+                          </div>
+                          <div className="text-[11px] text-slate-400 truncate mt-0.5">
+                            {phoneCheckStatus.matchedUser.about || 'Available | Using ERROREN CHAT ⚡'}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Direct Message Action */}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (phoneCheckStatus.matchedUser) {
+                            onSelectUser(phoneCheckStatus.matchedUser);
+                            onClose();
+                          }
+                        }}
+                        className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs shadow-lg shadow-emerald-500/20 transition"
+                      >
+                        <MessageSquare className="w-4 h-4" />
+                        <span>Message {phoneCheckStatus.matchedUser.displayName}</span>
+                      </button>
+                    </div>
                   ) : (
-                    <span className="text-rose-400 font-medium">
-                      {phoneCheckStatus.message || 'This number is not registered on this platform.'}
-                    </span>
+                    /* Unregistered Phone Warning */
+                    <div className="p-3.5 rounded-2xl bg-rose-950/30 border border-rose-500/30 text-rose-300 space-y-2.5">
+                      <div className="flex items-start gap-2.5">
+                        <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+                        <div>
+                          <div className="text-xs font-bold text-rose-200">
+                            This number is not registered on ERROREN CHAT.
+                          </div>
+                          <div className="text-[11px] text-rose-300/80 mt-1 leading-relaxed">
+                            No active account is linked to this phone number. You can invite them to join ERROREN CHAT.
+                          </div>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={handleShareInvite}
+                        className="w-full flex items-center justify-center gap-2 py-2 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold border border-slate-700 transition"
+                      >
+                        <Share2 className="w-3.5 h-3.5 text-emerald-400" />
+                        <span>Invite to ERROREN CHAT</span>
+                      </button>
+                    </div>
                   )}
                 </div>
               )}
@@ -422,6 +544,7 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({
             </div>
           </form>
         ) : (
+
           /* New Chat / Contacts List View */
           <div className="flex-1 flex flex-col min-h-0">
             {/* Search Input */}

@@ -2,6 +2,16 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 import { User, Contact, UserSettings } from '../types';
 import { safeStorage } from '../utils/safeStorage';
 import { apiFetch } from '../utils/api';
+import { isSupabaseConfigured } from '../lib/supabase';
+import {
+  findUserByPhone,
+  addContactToSupabase,
+  deleteContactFromSupabase,
+  getContactsFromSupabase,
+  upsertUserProfile,
+  updateOnlineStatus,
+  fetchAllRegisteredProfiles,
+} from '../services/supabaseChat';
 
 export type AuthStep = 'welcome' | 'google_login' | 'profile' | 'authenticated';
 
@@ -9,7 +19,9 @@ export interface ProfileCompletionDetails {
   hasName: boolean;
   hasUsername: boolean;
   hasPhone: boolean;
+  hasEmail: boolean;
   isComplete: boolean;
+  missingFields: string[];
 }
 
 interface AuthContextType {
@@ -42,7 +54,8 @@ interface AuthContextType {
     avatarUrl: string, 
     username?: string, 
     phoneNumber?: string, 
-    countryCode?: string
+    countryCode?: string,
+    email?: string
   ) => Promise<boolean>;
   savePhoneNumber: (phoneNumber: string, countryCode: string, phoneVisibility?: 'everyone' | 'contacts' | 'nobody') => Promise<{ success: boolean; isSmsConfigured: boolean; message: string }>;
   contacts: Contact[];
@@ -303,22 +316,33 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const hasName = Boolean(
     currentUser?.displayName && 
-    currentUser.displayName.trim().length > 0 && 
+    currentUser.displayName.trim().length >= 2 && 
     currentUser.displayName !== 'New Member'
   );
   const hasUsername = Boolean(
     currentUser?.username && 
-    currentUser.username.trim().length > 0
+    currentUser.username.trim().replace(/^@/, '').length >= 3
   );
   const cleanPhone = (currentUser?.phoneNumber || '').trim().replace(/[^0-9]/g, '');
   const hasPhone = cleanPhone.length >= 6;
-  const isProfileComplete = Boolean(currentUser && hasName && hasUsername && hasPhone);
+  const cleanEmail = (currentUser?.email || '').trim().toLowerCase();
+  const hasEmail = Boolean(cleanEmail.includes('@') && cleanEmail.includes('.') && cleanEmail.length >= 5);
+
+  const isProfileComplete = Boolean(currentUser && hasName && hasUsername && hasPhone && hasEmail);
+
+  const missingFields: string[] = [];
+  if (!hasName) missingFields.push('Full Name');
+  if (!hasUsername) missingFields.push('Username');
+  if (!hasPhone) missingFields.push('Phone Number');
+  if (!hasEmail) missingFields.push('Gmail / Email');
 
   const profileCompletionDetails: ProfileCompletionDetails = {
     hasName,
     hasUsername,
     hasPhone,
+    hasEmail,
     isComplete: isProfileComplete,
+    missingFields,
   };
 
   const [userSettings, setUserSettings] = useState<UserSettings>(() => {
@@ -326,6 +350,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   });
 
   const refreshUsers = async () => {
+    // 1. Supabase first
+    if (isSupabaseConfigured()) {
+      try {
+        const sbUsers = await fetchAllRegisteredProfiles();
+        if (sbUsers && sbUsers.length > 0) {
+          setAllUsers(sbUsers);
+          return;
+        }
+      } catch (err) {
+        console.warn('[AuthContext] Supabase refreshUsers error:', err);
+      }
+    }
+
+    // 2. Server API fallback
     try {
       const res = await apiFetch('/api/users');
       if (res.ok) {
@@ -341,12 +379,29 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const refreshContacts = async () => {
     if (!currentUser?.id) return;
+
+    // 1. Supabase first
+    if (isSupabaseConfigured()) {
+      try {
+        const sbContacts = await getContactsFromSupabase(currentUser.id);
+        if (sbContacts && Array.isArray(sbContacts)) {
+          setContacts(sbContacts);
+          safeStorage.setJSON(`erroren_contacts_${currentUser.id}`, sbContacts);
+          return;
+        }
+      } catch (err) {
+        console.warn('[AuthContext] Supabase refreshContacts error:', err);
+      }
+    }
+
+    // 2. Server API fallback
     try {
       const res = await apiFetch(`/api/contacts?userId=${encodeURIComponent(currentUser.id)}`);
       if (res.ok) {
         const list = await res.json();
         if (Array.isArray(list)) {
           setContacts(list);
+          safeStorage.setJSON(`erroren_contacts_${currentUser.id}`, list);
         }
       }
     } catch (err) {
@@ -609,27 +664,55 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     avatarUrl: string,
     username?: string,
     phoneNumber?: string,
-    countryCode?: string
+    countryCode?: string,
+    email?: string
   ): Promise<boolean> => {
     if (!currentUser) return false;
     setIsLoading(true);
     setError(null);
 
+    const cleanUsername = username !== undefined ? username.trim().toLowerCase().replace(/^@/, '') : undefined;
+    const cleanEmail = email !== undefined ? email.trim().toLowerCase() : undefined;
+    const cleanDigits = phoneNumber !== undefined ? phoneNumber.trim().replace(/[^0-9]/g, '') : undefined;
+
+    // Client-side username uniqueness check
+    if (cleanUsername && cleanUsername.length > 0) {
+      const isTakenUsername = allUsers.some(u => {
+        if (u.id === currentUser.id) return false;
+        return (u.username || '').toLowerCase().replace(/^@/, '') === cleanUsername;
+      });
+      if (isTakenUsername) {
+        setError('This username is already taken. Please choose a different username.');
+        setIsLoading(false);
+        return false;
+      }
+    }
+
+    // Client-side email uniqueness check
+    if (cleanEmail && cleanEmail.length > 0) {
+      const isTakenEmail = allUsers.some(u => {
+        if (u.id === currentUser.id) return false;
+        return (u.email || '').toLowerCase() === cleanEmail;
+      });
+      if (isTakenEmail) {
+        setError('An account with this email already exists.');
+        setIsLoading(false);
+        return false;
+      }
+    }
+
     // Client-side phone uniqueness check
-    if (phoneNumber) {
-      const cleanDigits = phoneNumber.trim().replace(/[^0-9]/g, '');
-      if (cleanDigits.length > 0) {
-        const isTakenClient = allUsers.some(u => {
-          if (u.id === currentUser.id) return false;
-          const uPhoneDigits = ((u.countryCode || '') + (u.phoneNumber || '')).replace(/[^0-9]/g, '');
-          const justPhone = (u.phoneNumber || '').replace(/[^0-9]/g, '');
-          return uPhoneDigits === cleanDigits || justPhone === cleanDigits;
-        });
-        if (isTakenClient) {
-          setError('This phone number is already associated with another account.');
-          setIsLoading(false);
-          return false;
-        }
+    if (cleanDigits && cleanDigits.length > 0) {
+      const isTakenClient = allUsers.some(u => {
+        if (u.id === currentUser.id) return false;
+        const uPhoneDigits = ((u.countryCode || '') + (u.phoneNumber || '')).replace(/[^0-9]/g, '');
+        const justPhone = (u.phoneNumber || '').replace(/[^0-9]/g, '');
+        return uPhoneDigits === cleanDigits || justPhone === cleanDigits;
+      });
+      if (isTakenClient) {
+        setError('This phone number is already associated with another account.');
+        setIsLoading(false);
+        return false;
       }
     }
 
@@ -639,12 +722,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           userId: currentUser.id,
-          displayName,
-          username,
-          about,
+          displayName: displayName?.trim(),
+          username: cleanUsername,
+          about: about?.trim(),
           avatarUrl,
-          phoneNumber,
+          phoneNumber: phoneNumber !== undefined ? phoneNumber.trim() : currentUser.phoneNumber,
           countryCode: countryCode || currentUser.countryCode || '+92',
+          email: cleanEmail !== undefined ? cleanEmail : currentUser.email,
         }),
       });
 
@@ -654,16 +738,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           // Offline / Static fallback for profile update
           const updated: User = {
             ...currentUser,
-            displayName,
-            username: username || currentUser.username,
-            about,
-            avatarUrl,
-            phoneNumber: phoneNumber !== undefined ? phoneNumber : currentUser.phoneNumber,
+            displayName: displayName?.trim() || currentUser.displayName,
+            username: cleanUsername !== undefined ? (cleanUsername || undefined) : currentUser.username,
+            about: about !== undefined ? about.trim() : currentUser.about,
+            avatarUrl: avatarUrl || currentUser.avatarUrl,
+            phoneNumber: phoneNumber !== undefined ? (phoneNumber.trim() || undefined) : currentUser.phoneNumber,
             countryCode: countryCode || currentUser.countryCode,
+            email: cleanEmail !== undefined ? (cleanEmail || undefined) : currentUser.email,
           };
           setCurrentUser(updated);
           safeStorage.setJSON('erroren_user', updated);
           saveToAccountList(updated);
+          if (isSupabaseConfigured()) {
+            upsertUserProfile(updated).catch(() => {});
+          }
           setAuthStep('authenticated');
           return true;
         }
@@ -672,9 +760,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return false;
       }
 
-      setCurrentUser(data.user);
-      safeStorage.setJSON('erroren_user', data.user);
-      saveToAccountList(data.user);
+      const updatedUser: User = data.user;
+      setCurrentUser(updatedUser);
+      safeStorage.setJSON('erroren_user', updatedUser);
+      saveToAccountList(updatedUser);
+      if (isSupabaseConfigured()) {
+        upsertUserProfile(updatedUser).catch(() => {});
+      }
       setAuthStep('authenticated');
       await refreshUsers();
       return true;
@@ -750,6 +842,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  // Sync user profile & presence with Supabase on login
+  useEffect(() => {
+    if (currentUser?.id && isSupabaseConfigured()) {
+      upsertUserProfile(currentUser).catch((err) => {
+        console.warn('[AuthContext] Supabase sync user profile error:', err);
+      });
+      updateOnlineStatus(currentUser.id, true).catch(() => {});
+
+      const handleBeforeUnload = () => {
+        updateOnlineStatus(currentUser.id, false).catch(() => {});
+      };
+      window.addEventListener('beforeunload', handleBeforeUnload);
+      return () => {
+        window.removeEventListener('beforeunload', handleBeforeUnload);
+      };
+    }
+  }, [currentUser?.id]);
+
   // Add Contact - Strictly validates that the phone number belongs to a registered user
   const addContact = async (
     name: string,
@@ -768,6 +878,83 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
 
     const cleanDigits = cleanPhone.replace(/[^0-9]/g, '');
+
+    // 1. Check Supabase first
+    if (isSupabaseConfigured()) {
+      try {
+        const sbSearch = await findUserByPhone(cleanPhone, currentUser.id);
+        if (sbSearch.isSelf) {
+          return {
+            success: false,
+            isRegisteredUser: false,
+            error: 'You cannot add your own phone number as a contact.',
+          };
+        }
+
+        if (sbSearch.registered && sbSearch.user) {
+          const matchedUser = sbSearch.user;
+          const alreadySaved = contacts.some(
+            (c) =>
+              c.contactUserId === matchedUser.id ||
+              (c.phoneNumber && c.phoneNumber.replace(/[^0-9]/g, '') === cleanDigits)
+          );
+          if (alreadySaved) {
+            return {
+              success: false,
+              isRegisteredUser: true,
+              error: 'This contact is already in your contacts list.',
+            };
+          }
+
+          const addRes = await addContactToSupabase(
+            currentUser.id,
+            matchedUser,
+            name.trim(),
+            avatarUrl,
+            about
+          );
+
+          if (addRes.success && addRes.contact) {
+            const newContact = addRes.contact;
+            setContacts((prev) => [newContact, ...prev.filter((c) => c.id !== newContact.id)]);
+            safeStorage.setJSON(`erroren_contacts_${currentUser.id}`, [
+              newContact,
+              ...contacts.filter((c) => c.id !== newContact.id),
+            ]);
+
+            // Sync with server in background if available
+            apiFetch('/api/contacts', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                ownerUserId: currentUser.id,
+                name: name.trim(),
+                phoneNumber: cleanPhone,
+                avatarUrl,
+                about,
+              }),
+            }).catch(() => {});
+
+            return {
+              success: true,
+              isRegisteredUser: true,
+              contact: newContact,
+              matchedUser,
+            };
+          } else if (addRes.error) {
+            return {
+              success: false,
+              isRegisteredUser: true,
+              error: addRes.error,
+            };
+          }
+        }
+      } catch (err: any) {
+        console.warn('[AuthContext] Supabase addContact error:', err);
+      }
+    }
+
+    // 2. Server / Local fallback
     const localMatchedUser = allUsers.find((u) => {
       const uDigits = (u.phoneNumber || '').replace(/[^0-9]/g, '');
       return (
@@ -882,6 +1069,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // Delete Contact
   const deleteContact = async (contactId: string): Promise<boolean> => {
     if (!currentUser) return false;
+
+    if (isSupabaseConfigured()) {
+      deleteContactFromSupabase(currentUser.id, contactId).catch((err) => {
+        console.warn('[AuthContext] Supabase deleteContact error:', err);
+      });
+    }
+
     try {
       const res = await apiFetch(`/api/contacts/${contactId}?userId=${encodeURIComponent(currentUser.id)}`, {
         method: 'DELETE',
@@ -899,6 +1093,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const logout = () => {
+    if (currentUser?.id && isSupabaseConfigured()) {
+      updateOnlineStatus(currentUser.id, false).catch(() => {});
+    }
     setCurrentUser(null);
     safeStorage.removeItem('erroren_user');
     setAuthStep('welcome');

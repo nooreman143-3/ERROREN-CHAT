@@ -12,6 +12,7 @@ import {
   RefreshCw,
   Phone,
   AtSign,
+  Mail,
   AlertCircle,
   CheckCircle2
 } from 'lucide-react';
@@ -33,9 +34,9 @@ const BIO_TEMPLATES = [
 ];
 
 const COUNTRY_CODES = [
+  { code: '+92', country: 'Pakistan' },
   { code: '+1', country: 'US / Canada' },
   { code: '+44', country: 'United Kingdom' },
-  { code: '+92', country: 'Pakistan' },
   { code: '+91', country: 'India' },
   { code: '+971', country: 'UAE' },
   { code: '+966', country: 'Saudi Arabia' },
@@ -52,7 +53,8 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({ isOpen, onCl
   const [displayName, setDisplayName] = useState(currentUser?.displayName || '');
   const [username, setUsername] = useState(currentUser?.username || '');
   const [phoneNumber, setPhoneNumber] = useState(currentUser?.phoneNumber || '');
-  const [countryCode, setCountryCode] = useState(currentUser?.countryCode || '+1');
+  const [countryCode, setCountryCode] = useState(currentUser?.countryCode || '+92');
+  const [email, setEmail] = useState(currentUser?.email || '');
   const [about, setAbout] = useState(currentUser?.about || 'Available | Using ERROREN CHAT ⚡');
   const [avatarUrl, setAvatarUrl] = useState(currentUser?.avatarUrl || '');
   
@@ -77,12 +79,14 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({ isOpen, onCl
   if (!isOpen || !currentUser) return null;
 
   const cleanPhoneDigits = phoneNumber.replace(/[^0-9]/g, '');
-  const cleanUsername = username.trim().replace(/^@/, '');
+  const cleanUsername = username.trim().toLowerCase().replace(/^@/, '');
+  const cleanEmail = email.trim().toLowerCase();
 
   const hasValidName = displayName.trim().length >= 2 && displayName.trim() !== 'New Member';
   const hasValidUsername = cleanUsername.length >= 3;
   const hasValidPhone = cleanPhoneDigits.length >= 6;
-  const isAllValid = hasValidName && hasValidUsername && hasValidPhone;
+  const hasValidEmail = Boolean(cleanEmail.includes('@') && cleanEmail.includes('.') && cleanEmail.length >= 5);
+  const isAllValid = hasValidName && hasValidUsername && hasValidPhone && hasValidEmail;
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -125,6 +129,11 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({ isOpen, onCl
       return;
     }
 
+    if (!hasValidEmail) {
+      setErrorMsg('A valid Gmail or email address is required (e.g. name@gmail.com).');
+      return;
+    }
+
     setIsSaving(true);
     setErrorMsg(null);
 
@@ -141,14 +150,15 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({ isOpen, onCl
         }
       }
 
-      // 2. Update Profile (Name, Username, Bio, Avatar, Phone)
+      // 2. Update Profile (Name, Username, Bio, Avatar, Phone, CountryCode, Email)
       const success = await updateProfile(
         displayName.trim(),
         about.trim(),
         avatarUrl || `https://api.dicebear.com/7.x/bottts/svg?seed=${currentUser.id}`,
         cleanUsername,
         cleanPhone,
-        countryCode
+        countryCode,
+        cleanEmail
       );
 
       if (!success) {
@@ -172,7 +182,7 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({ isOpen, onCl
       setTimeout(() => {
         setSavedSuccess(false);
         onClose();
-      }, 800);
+      }, 900);
     } catch (err: any) {
       setErrorMsg(err.message || 'Failed to update profile.');
     } finally {
@@ -210,7 +220,7 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({ isOpen, onCl
             <div>
               <h3 className="text-base font-bold">Profile Completion</h3>
               <p className={`text-xs ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
-                Name, Username & Phone Number are required to send messages
+                Name, Username, Phone Number & Gmail are all required to unlock messaging
               </p>
             </div>
           </div>
@@ -233,7 +243,7 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({ isOpen, onCl
           <span className="font-semibold text-[11px] uppercase tracking-wider text-slate-400">
             Requirements:
           </span>
-          <div className="flex items-center gap-2 text-xs">
+          <div className="flex items-center flex-wrap gap-1.5 text-xs">
             <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[11px] font-medium ${
               hasValidName ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
             }`}>
@@ -250,7 +260,13 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({ isOpen, onCl
               hasValidPhone ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
             }`}>
               {hasValidPhone ? <CheckCircle2 className="w-3 h-3" /> : <AlertCircle className="w-3 h-3" />}
-              Phone (Required)
+              Phone
+            </span>
+            <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[11px] font-medium ${
+              hasValidEmail ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
+            }`}>
+              {hasValidEmail ? <CheckCircle2 className="w-3 h-3" /> : <AlertCircle className="w-3 h-3" />}
+              Gmail
             </span>
           </div>
         </div>
@@ -313,7 +329,7 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({ isOpen, onCl
           {/* 1. Display Name (Mandatory) */}
           <div>
             <label className="block text-xs font-semibold mb-1.5">
-              Display Name <span className="text-rose-500">*</span>
+              Full Name / Display Name <span className="text-rose-500">*</span>
             </label>
             <div className="relative">
               <UserIcon className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
@@ -336,7 +352,7 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({ isOpen, onCl
           {/* 2. Username (Mandatory) */}
           <div>
             <label className="block text-xs font-semibold mb-1.5">
-              Username <span className="text-rose-500">*</span>
+              Username <span className="text-rose-500">* (REQUIRED)</span>
             </label>
             <div className="relative">
               <AtSign className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
@@ -355,14 +371,14 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({ isOpen, onCl
               />
             </div>
             <p className="text-[11px] text-slate-400 mt-1">
-              Your unique handle for mentions and direct search (min 3 chars).
+              Your unique handle for contacts, mentions, and search (min 3 chars).
             </p>
           </div>
 
           {/* 3. Phone Number (MANDATORY per user requirement) */}
           <div>
             <label className="block text-xs font-semibold mb-1.5">
-              Phone Number <span className="text-rose-500">* (REQUIRED TO CHAT)</span>
+              Phone Number <span className="text-rose-500">* (REQUIRED)</span>
             </label>
             <div className="flex gap-2">
               <select
@@ -398,7 +414,32 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({ isOpen, onCl
               </div>
             </div>
             <p className="text-[11px] text-slate-400 mt-1">
-              Required for identity verification and multi-device SMS synchronization.
+              Required for WhatsApp-style registered contacts and identity verification.
+            </p>
+          </div>
+
+          {/* 4. Gmail / Email (MANDATORY per user requirement) */}
+          <div>
+            <label className="block text-xs font-semibold mb-1.5">
+              Gmail / Email Address <span className="text-rose-500">* (REQUIRED)</span>
+            </label>
+            <div className="relative">
+              <Mail className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+              <input
+                type="email"
+                required
+                placeholder="yourname@gmail.com"
+                value={email}
+                onChange={(e) => setEmail(e.target.value.toLowerCase().trim())}
+                className={`w-full pl-10 pr-3 py-2.5 rounded-xl text-sm border focus:outline-none transition ${
+                  isDark 
+                    ? 'bg-slate-800/90 border-slate-700 text-white placeholder-slate-500' 
+                    : 'bg-slate-50 border-slate-200 text-slate-900 placeholder-slate-400'
+                }`}
+              />
+            </div>
+            <p className="text-[11px] text-slate-400 mt-1">
+              Used for account security, multi-device backup, and profile verification.
             </p>
           </div>
 
@@ -497,7 +538,7 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({ isOpen, onCl
           <div className={`flex items-center gap-3 pt-3 border-t ${isDark ? 'border-slate-800' : 'border-slate-100'}`}>
             <button
               type="submit"
-              disabled={isSaving || !displayName.trim()}
+              disabled={isSaving || !displayName.trim() || !username.trim()}
               className="flex-1 font-bold py-2.5 rounded-xl text-xs transition flex items-center justify-center gap-2 shadow-lg disabled:opacity-50"
               style={{
                 backgroundColor: currentAccent.hex,
@@ -522,3 +563,4 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({ isOpen, onCl
     </div>
   );
 };
+

@@ -471,13 +471,25 @@ app.post('/api/auth/register', (req: Request, res: Response) => {
       success: true,
       token: `sess_token_${newUser.id}_${Date.now()}`,
       user: newUser,
-      isProfileComplete: true,
+      isProfileComplete: checkUserProfileComplete(newUser),
       isNewUser: true,
     });
   } catch (err: any) {
     res.status(400).json({ error: err.message || 'Registration failed. Please try again.' });
   }
 });
+
+// Helper: Profile completeness check requiring Name, Username, Phone Number & Gmail/Email
+function checkUserProfileComplete(user: any): boolean {
+  if (!user) return false;
+  const hasName = Boolean(user.displayName && user.displayName.trim().length >= 2 && user.displayName.trim() !== 'New Member');
+  const hasUsername = Boolean(user.username && user.username.trim().replace(/^@/, '').length >= 3);
+  const cleanPhone = (user.phoneNumber || '').trim().replace(/[^0-9]/g, '');
+  const hasPhone = cleanPhone.length >= 6;
+  const cleanEmail = (user.email || '').trim().toLowerCase();
+  const hasEmail = Boolean(cleanEmail.includes('@') && cleanEmail.includes('.') && cleanEmail.length >= 5);
+  return Boolean(hasName && hasUsername && hasPhone && hasEmail);
+}
 
 // 2. Standard Login Route ("Sign In")
 app.post('/api/auth/login', (req: Request, res: Response) => {
@@ -530,7 +542,7 @@ app.post('/api/auth/login', (req: Request, res: Response) => {
     success: true,
     token: `sess_token_${user.id}_${Date.now()}`,
     user,
-    isProfileComplete: true,
+    isProfileComplete: checkUserProfileComplete(user),
     isNewUser: false,
   });
 });
@@ -594,11 +606,7 @@ app.post('/api/auth/google', (req: Request, res: Response) => {
     })!;
   }
 
-  const isProfileComplete = Boolean(
-    user.displayName &&
-    user.displayName.trim().length > 0 &&
-    user.displayName !== 'New Member'
-  );
+  const isProfileComplete = checkUserProfileComplete(user);
 
   res.json({
     success: true,
@@ -664,12 +672,7 @@ app.post('/api/auth/phone', (req: Request, res: Response) => {
   // Auto-link any saved contacts across all users to this account
   db.linkContactsToUser(user);
 
-  const isProfileComplete = Boolean(
-    user.displayName &&
-    user.displayName.trim().length > 0 &&
-    user.displayName !== 'New Member' &&
-    !isNew
-  );
+  const isProfileComplete = checkUserProfileComplete(user);
 
   res.json({
     success: true,
@@ -682,7 +685,7 @@ app.post('/api/auth/phone', (req: Request, res: Response) => {
 
 // User Session Sync Route (Ensures client user exists in persistent DB)
 app.post('/api/auth/sync', (req: Request, res: Response) => {
-  const { user, userId, displayName, email, avatarUrl, about, phoneNumber } = req.body;
+  const { user, userId, displayName, email, avatarUrl, about, phoneNumber, username, countryCode } = req.body;
   const targetId = userId || user?.id;
 
   if (!targetId) {
@@ -699,41 +702,59 @@ app.post('/api/auth/sync', (req: Request, res: Response) => {
       isOnline: true,
       lastSeen: Date.now(),
       displayName: displayName || user?.displayName || existing.displayName,
+      username: username !== undefined ? (username || undefined) : (user?.username || existing.username),
       avatarUrl: avatarUrl || user?.avatarUrl || existing.avatarUrl,
       about: about !== undefined ? about : (user?.about || existing.about),
+      email: email ? email.trim().toLowerCase() : (user?.email || existing.email),
       phoneNumber: phoneNumber || user?.phoneNumber || existing.phoneNumber,
-    });
-    return res.json({ success: true, user: updated, isNew: false });
+      countryCode: countryCode || user?.countryCode || existing.countryCode,
+    })!;
+    return res.json({ success: true, user: updated, isNew: false, isProfileComplete: checkUserProfileComplete(updated) });
   }
 
   // Auto-provision user into database
   const newUser = db.createUser({
     id: targetId,
     displayName: (displayName || user?.displayName || 'ERROREN Member').trim(),
+    username: username || user?.username || undefined,
     about: (about || user?.about || 'Available | Using ERROREN CHAT ⚡').trim(),
     avatarUrl: avatarUrl || user?.avatarUrl || `https://api.dicebear.com/7.x/bottts/svg?seed=${targetId}`,
     email: (email || user?.email) ? (email || user?.email).trim().toLowerCase() : undefined,
     phoneNumber: phoneNumber || user?.phoneNumber || undefined,
+    countryCode: countryCode || user?.countryCode || '+92',
     isOnline: true,
     lastSeen: Date.now(),
     role: (user?.role as any) || 'user',
     createdAt: Date.now(),
   });
 
-  res.json({ success: true, user: newUser, isNew: true });
+  res.json({ success: true, user: newUser, isNew: true, isProfileComplete: checkUserProfileComplete(newUser) });
 });
 
 // Profile update route
 app.post('/api/auth/profile', (req: Request, res: Response) => {
-  const { userId, displayName, about, avatarUrl, email, phoneNumber } = req.body;
+  const { userId, displayName, about, avatarUrl, email, phoneNumber, username, countryCode } = req.body;
   if (!userId) {
     return res.status(400).json({ error: 'User ID is required.' });
   }
 
+  // Validate Username Uniqueness if updating username
+  let cleanUsername: string | undefined = undefined;
+  if (username !== undefined) {
+    cleanUsername = String(username).trim().toLowerCase().replace(/^@/, '');
+    if (cleanUsername.length > 0 && db.isUsernameTaken(cleanUsername, userId)) {
+      return res.status(409).json({
+        error: 'This username is already taken. Please choose a different username.',
+        code: 'USERNAME_ALREADY_EXISTS',
+      });
+    }
+  }
+
   // Validate Email Uniqueness if updating email
-  if (email) {
-    const cleanEmail = email.trim().toLowerCase();
-    if (db.isEmailTaken(cleanEmail, userId)) {
+  let cleanEmail: string | undefined = undefined;
+  if (email !== undefined) {
+    cleanEmail = String(email).trim().toLowerCase();
+    if (cleanEmail.length > 0 && db.isEmailTaken(cleanEmail, userId)) {
       return res.status(409).json({
         error: 'An account with this email already exists. Please log in to your existing account.',
         code: 'EMAIL_ALREADY_EXISTS',
@@ -742,8 +763,8 @@ app.post('/api/auth/profile', (req: Request, res: Response) => {
   }
 
   // Validate Phone Uniqueness if updating phone
-  if (phoneNumber) {
-    const cleanPhone = phoneNumber.trim().replace(/[^0-9]/g, '');
+  if (phoneNumber !== undefined) {
+    const cleanPhone = String(phoneNumber).trim().replace(/[^0-9]/g, '');
     if (cleanPhone.length > 0 && db.isPhoneTaken(cleanPhone, userId)) {
       return res.status(409).json({
         error: 'This phone number is already associated with another account.',
@@ -758,10 +779,12 @@ app.post('/api/auth/profile', (req: Request, res: Response) => {
       user = db.createUser({
         id: userId,
         displayName: (displayName || 'ERROREN Member').trim(),
+        username: cleanUsername || undefined,
         about: (about !== undefined ? about : 'Available | Using ERROREN CHAT ⚡').trim(),
         avatarUrl: avatarUrl || `https://api.dicebear.com/7.x/bottts/svg?seed=${userId}`,
-        email: email ? email.trim().toLowerCase() : undefined,
-        phoneNumber: phoneNumber ? phoneNumber.trim() : undefined,
+        email: cleanEmail || undefined,
+        phoneNumber: phoneNumber ? String(phoneNumber).trim() : undefined,
+        countryCode: countryCode || '+92',
         isOnline: true,
         lastSeen: Date.now(),
         role: 'user',
@@ -773,16 +796,21 @@ app.post('/api/auth/profile', (req: Request, res: Response) => {
   } else {
     try {
       user = db.updateUser(userId, {
-        displayName: (displayName || user.displayName || 'ERROREN Member').trim(),
-        about: (about !== undefined ? about : user.about).trim(),
+        displayName: displayName !== undefined ? String(displayName).trim() : user.displayName,
+        username: cleanUsername !== undefined ? (cleanUsername || undefined) : user.username,
+        about: about !== undefined ? String(about).trim() : user.about,
         avatarUrl: avatarUrl || user.avatarUrl,
-        email: email ? email.trim().toLowerCase() : user.email,
-        phoneNumber: phoneNumber ? phoneNumber.trim() : user.phoneNumber,
+        email: cleanEmail !== undefined ? (cleanEmail || undefined) : user.email,
+        phoneNumber: phoneNumber !== undefined ? (String(phoneNumber).trim() || undefined) : user.phoneNumber,
+        countryCode: countryCode || user.countryCode || '+92',
       })!;
     } catch (err: any) {
       return res.status(409).json({ error: err.message || 'Validation error' });
     }
   }
+
+  // Auto-link contacts to this user if phone or username was updated
+  db.linkContactsToUser(user);
 
   // Broadcast user update to all active WebSocket clients
   try {
@@ -799,7 +827,9 @@ app.post('/api/auth/profile', (req: Request, res: Response) => {
     console.error('Failed to broadcast user update:', err);
   }
 
-  res.json({ success: true, user });
+  const isProfileComplete = checkUserProfileComplete(user);
+
+  res.json({ success: true, user, isProfileComplete });
 });
 
 // 2. Optional Phone Number Management

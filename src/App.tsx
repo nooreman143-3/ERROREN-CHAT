@@ -27,6 +27,15 @@ import { Chat, Message, MessageType, ReplyToMessage, StatusStory, CallLog, User 
 import { ToastContainer } from './components/common/Toast';
 import { MessageSquare, Plus } from 'lucide-react';
 import { apiFetch } from './utils/api';
+import { isSupabaseConfigured } from './lib/supabase';
+import {
+  fetchUserChatsFromSupabase,
+  fetchChatMessagesFromSupabase,
+  sendMessageToSupabase,
+  getOrCreateDirectChatInSupabase,
+  subscribeToChatMessages,
+  subscribeToPresence,
+} from './services/supabaseChat';
 
 const MainAppContent: React.FC = () => {
   const { currentUser, authStep, allUsers, refreshUsers, isProfileModalOpen, closeProfileModal } = useAuth();
@@ -61,20 +70,39 @@ const MainAppContent: React.FC = () => {
   // Fetch initial chats, statuses, and calls
   const loadInitialData = async () => {
     if (!currentUser) return;
+
+    // 1. Supabase Chats first
+    if (isSupabaseConfigured()) {
+      try {
+        const sbChats = await fetchUserChatsFromSupabase(currentUser.id);
+        if (sbChats && sbChats.length > 0) {
+          setChats(sbChats);
+          if (!selectedChatId) {
+            setSelectedChatId(sbChats[0].id);
+          }
+        }
+      } catch (err) {
+        console.warn('[App] Supabase loadInitialData chats error:', err);
+      }
+    }
+
     try {
-      // 1. Fetch Chats
+      // 2. Fetch Chats (fallback or supplement)
       const chatRes = await apiFetch(`/api/chats?userId=${encodeURIComponent(currentUser.id)}`);
       if (chatRes.ok && chatRes.headers.get('content-type')?.includes('application/json')) {
         const chatData = await chatRes.json();
         if (Array.isArray(chatData)) {
-          setChats(chatData);
+          setChats((prev) => {
+            if (prev.length > 0) return prev;
+            return chatData;
+          });
           if (chatData.length > 0 && !selectedChatId) {
             setSelectedChatId(chatData[0].id);
           }
         }
       }
 
-      // 2. Fetch Status Stories
+      // 3. Fetch Status Stories
       const statusRes = await apiFetch('/api/status');
       if (statusRes.ok && statusRes.headers.get('content-type')?.includes('application/json')) {
         const statusData = await statusRes.json();
@@ -83,7 +111,7 @@ const MainAppContent: React.FC = () => {
         }
       }
 
-      // 3. Fetch Call Logs
+      // 4. Fetch Call Logs
       const callRes = await apiFetch(`/api/calls?userId=${encodeURIComponent(currentUser.id)}`);
       if (callRes.ok && callRes.headers.get('content-type')?.includes('application/json')) {
         const callData = await callRes.json();
@@ -100,27 +128,120 @@ const MainAppContent: React.FC = () => {
     loadInitialData();
   }, [currentUser?.id]);
 
-  // Load messages for active chat
+  // Load messages for active chat + Realtime message subscription
   useEffect(() => {
     if (!selectedChatId) return;
 
-    apiFetch(`/api/chats/${selectedChatId}/messages`)
-      .then(async (res) => {
-        if (res.ok && res.headers.get('content-type')?.includes('application/json')) {
-          return res.json();
+    // 1. Load messages from Supabase first if configured
+    if (isSupabaseConfigured()) {
+      fetchChatMessagesFromSupabase(selectedChatId)
+        .then((msgs) => {
+          if (Array.isArray(msgs) && msgs.length > 0) {
+            setChatMessages((prev) => ({
+              ...prev,
+              [selectedChatId]: msgs,
+            }));
+          } else {
+            // Fallback to API
+            apiFetch(`/api/chats/${selectedChatId}/messages`)
+              .then(async (res) => (res.ok ? res.json() : []))
+              .then((apiMsgs) => {
+                if (Array.isArray(apiMsgs)) {
+                  setChatMessages((prev) => ({
+                    ...prev,
+                    [selectedChatId]: apiMsgs,
+                  }));
+                }
+              })
+              .catch(() => {});
+          }
+        })
+        .catch(console.error);
+    } else {
+      apiFetch(`/api/chats/${selectedChatId}/messages`)
+        .then(async (res) => {
+          if (res.ok && res.headers.get('content-type')?.includes('application/json')) {
+            return res.json();
+          }
+          return [];
+        })
+        .then((msgs) => {
+          if (Array.isArray(msgs)) {
+            setChatMessages((prev) => ({
+              ...prev,
+              [selectedChatId]: msgs,
+            }));
+          }
+        })
+        .catch(console.error);
+    }
+
+    // 2. Subscribe to Supabase Realtime for this active chat
+    if (isSupabaseConfigured()) {
+      const unsub = subscribeToChatMessages(
+        selectedChatId,
+        (incomingMsg) => {
+          setChatMessages((prev) => {
+            const currentList = prev[incomingMsg.chatId] || [];
+            if (currentList.some((m) => m.id === incomingMsg.id)) return prev;
+            return {
+              ...prev,
+              [incomingMsg.chatId]: [...currentList, incomingMsg],
+            };
+          });
+
+          setChats((prev) =>
+            prev.map((c) => {
+              if (c.id === incomingMsg.chatId) {
+                return {
+                  ...c,
+                  lastMessage: incomingMsg,
+                  updatedAt: incomingMsg.timestamp,
+                };
+              }
+              return c;
+            })
+          );
+        },
+        (updatedMsg) => {
+          setChatMessages((prev) => {
+            const currentList = prev[updatedMsg.chatId] || [];
+            return {
+              ...prev,
+              [updatedMsg.chatId]: currentList.map((m) =>
+                m.id === updatedMsg.id ? updatedMsg : m
+              ),
+            };
+          });
         }
-        return [];
-      })
-      .then((msgs) => {
-        if (Array.isArray(msgs)) {
-          setChatMessages((prev) => ({
-            ...prev,
-            [selectedChatId]: msgs,
-          }));
-        }
-      })
-      .catch(console.error);
+      );
+
+      return () => {
+        unsub();
+      };
+    }
   }, [selectedChatId]);
+
+  // Subscribe to presence updates from Supabase Realtime
+  useEffect(() => {
+    if (!isSupabaseConfigured()) return;
+    const unsubPresence = subscribeToPresence((userId, isOnline, lastSeen) => {
+      setChats((prev) =>
+        prev.map((c) => {
+          if (!c.isGroup && (c.participantIds || []).includes(userId)) {
+            return {
+              ...c,
+              updatedAt: Date.now(),
+            };
+          }
+          return c;
+        })
+      );
+    });
+    return () => {
+      unsubPresence();
+    };
+  }, []);
 
   // Register live incoming message listener
   useEffect(() => {
@@ -212,6 +333,25 @@ const MainAppContent: React.FC = () => {
         return c;
       })
     );
+
+    // Save to Supabase
+    if (isSupabaseConfigured()) {
+      sendMessageToSupabase(newMsg)
+        .then((persistedMsg) => {
+          if (persistedMsg) {
+            setChatMessages((prev) => {
+              const current = prev[selectedChatId] || [];
+              return {
+                ...prev,
+                [selectedChatId]: current.map((m) => (m.id === newMsg.id ? persistedMsg : m)),
+              };
+            });
+          }
+        })
+        .catch((err) => {
+          console.warn('[App] Supabase sendMessage error:', err);
+        });
+    }
 
     sendMessage(selectedChatId, newMsg);
   };
@@ -326,6 +466,21 @@ const MainAppContent: React.FC = () => {
       setSelectedChatId(existing.id);
       setActiveTab('chats');
       return;
+    }
+
+    // 1. Check Supabase first
+    if (isSupabaseConfigured()) {
+      try {
+        const res = await getOrCreateDirectChatInSupabase(currentUser, partner);
+        if (res && res.chat) {
+          setChats((prev) => [res.chat, ...prev.filter((c) => c.id !== res.chat.id)]);
+          setSelectedChatId(res.chat.id);
+          setActiveTab('chats');
+          return;
+        }
+      } catch (err) {
+        console.warn('[App] Supabase getOrCreateDirectChat error:', err);
+      }
     }
 
     const fallbackChat: Chat = {

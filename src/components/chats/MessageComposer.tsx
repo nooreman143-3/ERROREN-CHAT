@@ -86,6 +86,7 @@ export const MessageComposer: React.FC<MessageComposerProps> = ({
         !profileCompletionDetails.hasName && 'Name',
         !profileCompletionDetails.hasUsername && 'Username',
         !profileCompletionDetails.hasPhone && 'Phone Number',
+        !profileCompletionDetails.hasEmail && 'Gmail / Email',
       ].filter(Boolean).join(', ');
 
       toast.error(`Profile incomplete! Please complete your profile (${missing} required) before sending messages.`);
@@ -661,15 +662,11 @@ export const MessageComposer: React.FC<MessageComposerProps> = ({
           <div className="flex items-center gap-2.5 min-w-0">
             <AlertCircle className="w-4 h-4 shrink-0 text-amber-500" />
             <div className="truncate">
-              <span className="font-bold">Profile Must Be Complete: </span>
+              <span className="font-bold">Profile Incomplete: </span>
               <span className="opacity-90">
-                {!profileCompletionDetails.hasName 
-                  ? 'Display Name is required. ' 
-                  : !profileCompletionDetails.hasUsername 
-                  ? 'Username is required. ' 
-                  : !profileCompletionDetails.hasPhone 
-                  ? 'Phone Number is required to send messages. ' 
-                  : 'Name, Username & Phone Number are required.'}
+                {profileCompletionDetails.missingFields && profileCompletionDetails.missingFields.length > 0
+                  ? `${profileCompletionDetails.missingFields.join(', ')} required to send messages.`
+                  : 'Name, Username, Phone Number & Gmail are required to send messages.'}
               </span>
             </div>
           </div>
