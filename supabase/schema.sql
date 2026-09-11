@@ -212,4 +212,172 @@ BEGIN
   ) THEN
     ALTER PUBLICATION supabase_realtime ADD TABLE public.chats;
   END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_publication_tables 
+    WHERE pubname = 'supabase_realtime' AND tablename = 'status_stories'
+  ) THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.status_stories;
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_publication_tables 
+    WHERE pubname = 'supabase_realtime' AND tablename = 'communities'
+  ) THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.communities;
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_publication_tables 
+    WHERE pubname = 'supabase_realtime' AND tablename = 'channels'
+  ) THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.channels;
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_publication_tables 
+    WHERE pubname = 'supabase_realtime' AND tablename = 'channel_posts'
+  ) THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.channel_posts;
+  END IF;
 END $$;
+
+-- ==============================================================================
+-- 7. COMMUNITIES & CHANNELS
+-- ==============================================================================
+
+CREATE TABLE IF NOT EXISTS public.communities (
+  id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+  name TEXT NOT NULL,
+  description TEXT,
+  avatar_url TEXT,
+  creator_id TEXT NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+  invite_code TEXT UNIQUE,
+  is_public BOOLEAN DEFAULT true,
+  member_count INT DEFAULT 1,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS public.community_members (
+  id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+  community_id TEXT NOT NULL REFERENCES public.communities(id) ON DELETE CASCADE,
+  user_id TEXT NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+  role TEXT DEFAULT 'member' CHECK (role IN ('member', 'admin', 'owner')),
+  joined_at TIMESTAMPTZ DEFAULT now(),
+  CONSTRAINT unique_community_member UNIQUE (community_id, user_id)
+);
+
+CREATE TABLE IF NOT EXISTS public.channels (
+  id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+  community_id TEXT NOT NULL REFERENCES public.communities(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  description TEXT,
+  avatar_url TEXT,
+  creator_id TEXT NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+  is_read_only BOOLEAN DEFAULT true,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS public.channel_posts (
+  id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+  channel_id TEXT NOT NULL REFERENCES public.channels(id) ON DELETE CASCADE,
+  author_id TEXT NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+  author_name TEXT NOT NULL,
+  author_avatar TEXT,
+  title TEXT,
+  content TEXT NOT NULL,
+  media_url TEXT,
+  media_type TEXT,
+  link_url TEXT,
+  likes JSONB DEFAULT '[]'::jsonb,
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+
+-- ==============================================================================
+-- 8. STATUS STORIES & CALL LOGS
+-- ==============================================================================
+
+CREATE TABLE IF NOT EXISTS public.status_stories (
+  id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+  user_id TEXT NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+  user_name TEXT NOT NULL,
+  user_avatar TEXT,
+  type TEXT DEFAULT 'text' CHECK (type IN ('text', 'image', 'video')),
+  content TEXT,
+  media_url TEXT,
+  background_color TEXT,
+  caption TEXT,
+  duration_hours INT DEFAULT 24,
+  expires_at TIMESTAMPTZ NOT NULL,
+  views JSONB DEFAULT '[]'::jsonb,
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS public.call_logs (
+  id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+  caller_id TEXT NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+  receiver_id TEXT NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+  type TEXT DEFAULT 'audio' CHECK (type IN ('audio', 'video')),
+  status TEXT DEFAULT 'completed' CHECK (status IN ('completed', 'missed', 'rejected')),
+  duration INT DEFAULT 0,
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+
+-- ==============================================================================
+-- RLS POLICIES FOR NEW TABLES
+-- ==============================================================================
+
+ALTER TABLE public.communities ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.community_members ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.channels ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.channel_posts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.status_stories ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.call_logs ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Communities access" ON public.communities;
+CREATE POLICY "Communities access" ON public.communities FOR ALL USING (true);
+
+DROP POLICY IF EXISTS "Community members access" ON public.community_members;
+CREATE POLICY "Community members access" ON public.community_members FOR ALL USING (true);
+
+DROP POLICY IF EXISTS "Channels access" ON public.channels;
+CREATE POLICY "Channels access" ON public.channels FOR ALL USING (true);
+
+DROP POLICY IF EXISTS "Channel posts access" ON public.channel_posts;
+CREATE POLICY "Channel posts access" ON public.channel_posts FOR ALL USING (true);
+
+DROP POLICY IF EXISTS "Status stories access" ON public.status_stories;
+CREATE POLICY "Status stories access" ON public.status_stories FOR ALL USING (true);
+
+DROP POLICY IF EXISTS "Call logs access" ON public.call_logs;
+CREATE POLICY "Call logs access" ON public.call_logs FOR ALL USING (true);
+
+-- ==============================================================================
+-- 9. STORAGE BUCKETS SETUP & STORAGE RLS POLICIES
+-- ==============================================================================
+
+INSERT INTO storage.buckets (id, name, public)
+VALUES ('media', 'media', true)
+ON CONFLICT (id) DO UPDATE SET public = true;
+
+INSERT INTO storage.buckets (id, name, public)
+VALUES ('avatars', 'avatars', true)
+ON CONFLICT (id) DO UPDATE SET public = true;
+
+DROP POLICY IF EXISTS "Public Storage Media Access" ON storage.objects;
+CREATE POLICY "Public Storage Media Access"
+  ON storage.objects FOR SELECT
+  USING (bucket_id IN ('media', 'avatars'));
+
+DROP POLICY IF EXISTS "Public Storage Media Upload" ON storage.objects;
+CREATE POLICY "Public Storage Media Upload"
+  ON storage.objects FOR INSERT
+  WITH CHECK (bucket_id IN ('media', 'avatars'));
+
+DROP POLICY IF EXISTS "Public Storage Media Update" ON storage.objects;
+CREATE POLICY "Public Storage Media Update"
+  ON storage.objects FOR UPDATE
+  USING (bucket_id IN ('media', 'avatars'));
+

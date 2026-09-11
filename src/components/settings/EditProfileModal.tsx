@@ -14,7 +14,8 @@ import {
   AtSign,
   Mail,
   AlertCircle,
-  CheckCircle2
+  CheckCircle2,
+  Lock
 } from 'lucide-react';
 
 interface EditProfileModalProps {
@@ -78,6 +79,12 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({ isOpen, onCl
 
   if (!isOpen || !currentUser) return null;
 
+  const isProfileAlreadyCompleted = Boolean(
+    currentUser?.isProfileComplete ||
+    currentUser?.profileCompleted ||
+    (currentUser?.phoneNumber && currentUser?.username && currentUser?.email && currentUser?.displayName && currentUser.displayName !== 'New Member')
+  );
+
   const cleanPhoneDigits = phoneNumber.replace(/[^0-9]/g, '');
   const cleanUsername = username.trim().toLowerCase().replace(/^@/, '');
   const cleanEmail = email.trim().toLowerCase();
@@ -119,19 +126,21 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({ isOpen, onCl
       return;
     }
 
-    if (!cleanUsername || cleanUsername.length < 3) {
-      setErrorMsg('Username is required and must be at least 3 characters.');
-      return;
-    }
+    if (!isProfileAlreadyCompleted) {
+      if (!cleanUsername || cleanUsername.length < 3) {
+        setErrorMsg('Username is required and must be at least 3 characters.');
+        return;
+      }
 
-    if (!hasValidPhone) {
-      setErrorMsg('Phone number is required (at least 6 digits) to complete your profile.');
-      return;
-    }
+      if (!hasValidPhone) {
+        setErrorMsg('Phone number is required (at least 6 digits) to complete your profile.');
+        return;
+      }
 
-    if (!hasValidEmail) {
-      setErrorMsg('A valid Gmail or email address is required (e.g. name@gmail.com).');
-      return;
+      if (!hasValidEmail) {
+        setErrorMsg('A valid Gmail or email address is required (e.g. name@gmail.com).');
+        return;
+      }
     }
 
     setIsSaving(true);
@@ -140,8 +149,8 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({ isOpen, onCl
     try {
       const cleanPhone = phoneNumber.trim();
 
-      // 1. If phone number is being changed or added, validate phone uniqueness first
-      if (cleanPhone && cleanPhone !== currentUser.phoneNumber) {
+      // 1. If phone number is being added for the first time
+      if (!isProfileAlreadyCompleted && cleanPhone && cleanPhone !== currentUser.phoneNumber) {
         const phoneRes = await savePhoneNumber(cleanPhone, countryCode);
         if (!phoneRes.success) {
           setErrorMsg(phoneRes.message || 'This phone number is already associated with another account.');
@@ -150,15 +159,20 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({ isOpen, onCl
         }
       }
 
-      // 2. Update Profile (Name, Username, Bio, Avatar, Phone, CountryCode, Email)
+      const finalUsername = isProfileAlreadyCompleted ? (currentUser.username || cleanUsername) : cleanUsername;
+      const finalPhone = isProfileAlreadyCompleted ? (currentUser.phoneNumber || cleanPhone) : cleanPhone;
+      const finalCountryCode = isProfileAlreadyCompleted ? (currentUser.countryCode || countryCode) : countryCode;
+      const finalEmail = isProfileAlreadyCompleted ? (currentUser.email || cleanEmail) : cleanEmail;
+
+      // 2. Update Profile (Name, Bio, Avatar, and initial fields if not already completed)
       const success = await updateProfile(
         displayName.trim(),
         about.trim(),
         avatarUrl || `https://api.dicebear.com/7.x/bottts/svg?seed=${currentUser.id}`,
-        cleanUsername,
-        cleanPhone,
-        countryCode,
-        cleanEmail
+        finalUsername,
+        finalPhone,
+        finalCountryCode,
+        finalEmail
       );
 
       if (!success) {
@@ -218,9 +232,13 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({ isOpen, onCl
               <UserIcon className="w-4.5 h-4.5" />
             </div>
             <div>
-              <h3 className="text-base font-bold">Profile Completion</h3>
+              <h3 className="text-base font-bold">
+                {isProfileAlreadyCompleted ? 'Edit Profile' : 'Profile Completion'}
+              </h3>
               <p className={`text-xs ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
-                Name, Username, Phone Number & Gmail are all required to unlock messaging
+                {isProfileAlreadyCompleted 
+                  ? 'Name & Profile Picture (DP) can be changed anytime. Registered handle and phone are locked.' 
+                  : 'Name, Username, Phone Number & Gmail are all required to unlock messaging'}
               </p>
             </div>
           </div>
@@ -240,35 +258,44 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({ isOpen, onCl
         <div className={`px-4 sm:px-6 py-2.5 border-b text-xs flex items-center justify-between flex-wrap gap-2 ${
           isDark ? 'bg-slate-950/60 border-slate-800/80' : 'bg-slate-100/60 border-slate-200'
         }`}>
-          <span className="font-semibold text-[11px] uppercase tracking-wider text-slate-400">
-            Requirements:
-          </span>
-          <div className="flex items-center flex-wrap gap-1.5 text-xs">
-            <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[11px] font-medium ${
-              hasValidName ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
-            }`}>
-              {hasValidName ? <CheckCircle2 className="w-3 h-3" /> : <AlertCircle className="w-3 h-3" />}
-              Name
-            </span>
-            <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[11px] font-medium ${
-              hasValidUsername ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
-            }`}>
-              {hasValidUsername ? <CheckCircle2 className="w-3 h-3" /> : <AlertCircle className="w-3 h-3" />}
-              Username
-            </span>
-            <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[11px] font-medium ${
-              hasValidPhone ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
-            }`}>
-              {hasValidPhone ? <CheckCircle2 className="w-3 h-3" /> : <AlertCircle className="w-3 h-3" />}
-              Phone
-            </span>
-            <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[11px] font-medium ${
-              hasValidEmail ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
-            }`}>
-              {hasValidEmail ? <CheckCircle2 className="w-3 h-3" /> : <AlertCircle className="w-3 h-3" />}
-              Gmail
-            </span>
-          </div>
+          {isProfileAlreadyCompleted ? (
+            <div className="flex items-center gap-2 text-emerald-400 font-semibold text-xs">
+              <ShieldCheck className="w-4 h-4 shrink-0 text-emerald-400" />
+              <span>Profile Completed & Saved — You can update your Display Name & DP</span>
+            </div>
+          ) : (
+            <>
+              <span className="font-semibold text-[11px] uppercase tracking-wider text-slate-400">
+                Requirements:
+              </span>
+              <div className="flex items-center flex-wrap gap-1.5 text-xs">
+                <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[11px] font-medium ${
+                  hasValidName ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
+                }`}>
+                  {hasValidName ? <CheckCircle2 className="w-3 h-3" /> : <AlertCircle className="w-3 h-3" />}
+                  Name
+                </span>
+                <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[11px] font-medium ${
+                  hasValidUsername ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
+                }`}>
+                  {hasValidUsername ? <CheckCircle2 className="w-3 h-3" /> : <AlertCircle className="w-3 h-3" />}
+                  Username
+                </span>
+                <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[11px] font-medium ${
+                  hasValidPhone ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
+                }`}>
+                  {hasValidPhone ? <CheckCircle2 className="w-3 h-3" /> : <AlertCircle className="w-3 h-3" />}
+                  Phone
+                </span>
+                <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[11px] font-medium ${
+                  hasValidEmail ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
+                }`}>
+                  {hasValidEmail ? <CheckCircle2 className="w-3 h-3" /> : <AlertCircle className="w-3 h-3" />}
+                  Gmail
+                </span>
+              </div>
+            </>
+          )}
         </div>
 
         {/* Scrollable Form Body */}
@@ -349,45 +376,67 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({ isOpen, onCl
             </div>
           </div>
 
-          {/* 2. Username (Mandatory) */}
+          {/* 2. Username */}
           <div>
-            <label className="block text-xs font-semibold mb-1.5">
-              Username <span className="text-rose-500">* (REQUIRED)</span>
-            </label>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="block text-xs font-semibold">
+                Username {isProfileAlreadyCompleted ? '' : <span className="text-rose-500">* (REQUIRED)</span>}
+              </label>
+              {isProfileAlreadyCompleted && (
+                <span className="inline-flex items-center gap-1 text-[10px] font-medium text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20">
+                  <Lock className="w-2.5 h-2.5" /> Permanent Handle
+                </span>
+              )}
+            </div>
             <div className="relative">
               <AtSign className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
               <input
                 type="text"
-                required
+                required={!isProfileAlreadyCompleted}
+                disabled={isProfileAlreadyCompleted}
                 maxLength={30}
                 placeholder="username (e.g. alex_erroren)"
                 value={username}
                 onChange={(e) => setUsername(e.target.value.toLowerCase().replace(/[^a-z0-9_.]/g, ''))}
                 className={`w-full pl-10 pr-3 py-2.5 rounded-xl text-sm border focus:outline-none transition ${
-                  isDark 
-                    ? 'bg-slate-800/90 border-slate-700 text-white placeholder-slate-500' 
-                    : 'bg-slate-50 border-slate-200 text-slate-900 placeholder-slate-400'
+                  isProfileAlreadyCompleted
+                    ? 'opacity-60 cursor-not-allowed bg-slate-800/40 border-slate-700/50 text-slate-300'
+                    : isDark 
+                      ? 'bg-slate-800/90 border-slate-700 text-white placeholder-slate-500' 
+                      : 'bg-slate-50 border-slate-200 text-slate-900 placeholder-slate-400'
                 }`}
               />
             </div>
             <p className="text-[11px] text-slate-400 mt-1">
-              Your unique handle for contacts, mentions, and search (min 3 chars).
+              {isProfileAlreadyCompleted 
+                ? 'Your verified username is locked to protect your account identity.' 
+                : 'Your unique handle for contacts, mentions, and search (min 3 chars).'}
             </p>
           </div>
 
-          {/* 3. Phone Number (MANDATORY per user requirement) */}
+          {/* 3. Phone Number */}
           <div>
-            <label className="block text-xs font-semibold mb-1.5">
-              Phone Number <span className="text-rose-500">* (REQUIRED)</span>
-            </label>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="block text-xs font-semibold">
+                Phone Number {isProfileAlreadyCompleted ? '' : <span className="text-rose-500">* (REQUIRED)</span>}
+              </label>
+              {isProfileAlreadyCompleted && (
+                <span className="inline-flex items-center gap-1 text-[10px] font-medium text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20">
+                  <Lock className="w-2.5 h-2.5" /> Permanent Phone
+                </span>
+              )}
+            </div>
             <div className="flex gap-2">
               <select
                 value={countryCode}
+                disabled={isProfileAlreadyCompleted}
                 onChange={(e) => setCountryCode(e.target.value)}
                 className={`px-3 py-2.5 rounded-xl text-xs border focus:outline-none shrink-0 ${
-                  isDark 
-                    ? 'bg-slate-800 border-slate-700 text-white' 
-                    : 'bg-slate-50 border-slate-200 text-slate-900'
+                  isProfileAlreadyCompleted
+                    ? 'opacity-60 cursor-not-allowed bg-slate-800/40 border-slate-700/50 text-slate-300'
+                    : isDark 
+                      ? 'bg-slate-800 border-slate-700 text-white' 
+                      : 'bg-slate-50 border-slate-200 text-slate-900'
                 }`}
               >
                 {COUNTRY_CODES.map((c) => (
@@ -401,45 +450,62 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({ isOpen, onCl
                 <Phone className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
                 <input
                   type="tel"
-                  required
+                  required={!isProfileAlreadyCompleted}
+                  disabled={isProfileAlreadyCompleted}
                   placeholder="3001234567"
                   value={phoneNumber}
                   onChange={(e) => setPhoneNumber(e.target.value)}
                   className={`w-full pl-10 pr-3 py-2.5 rounded-xl text-sm border focus:outline-none transition ${
-                    isDark 
-                      ? 'bg-slate-800/90 border-slate-700 text-white placeholder-slate-500' 
-                      : 'bg-slate-50 border-slate-200 text-slate-900 placeholder-slate-400'
+                    isProfileAlreadyCompleted
+                      ? 'opacity-60 cursor-not-allowed bg-slate-800/40 border-slate-700/50 text-slate-300'
+                      : isDark 
+                        ? 'bg-slate-800/90 border-slate-700 text-white placeholder-slate-500' 
+                        : 'bg-slate-50 border-slate-200 text-slate-900 placeholder-slate-400'
                   }`}
                 />
               </div>
             </div>
             <p className="text-[11px] text-slate-400 mt-1">
-              Required for WhatsApp-style registered contacts and identity verification.
+              {isProfileAlreadyCompleted 
+                ? 'Registered phone number is permanently linked to your profile.' 
+                : 'Required for WhatsApp-style registered contacts and identity verification.'}
             </p>
           </div>
 
-          {/* 4. Gmail / Email (MANDATORY per user requirement) */}
+          {/* 4. Gmail / Email */}
           <div>
-            <label className="block text-xs font-semibold mb-1.5">
-              Gmail / Email Address <span className="text-rose-500">* (REQUIRED)</span>
-            </label>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="block text-xs font-semibold">
+                Gmail / Email Address {isProfileAlreadyCompleted ? '' : <span className="text-rose-500">* (REQUIRED)</span>}
+              </label>
+              {isProfileAlreadyCompleted && (
+                <span className="inline-flex items-center gap-1 text-[10px] font-medium text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20">
+                  <Lock className="w-2.5 h-2.5" /> Permanent Email
+                </span>
+              )}
+            </div>
             <div className="relative">
               <Mail className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
               <input
                 type="email"
-                required
+                required={!isProfileAlreadyCompleted}
+                disabled={isProfileAlreadyCompleted}
                 placeholder="yourname@gmail.com"
                 value={email}
                 onChange={(e) => setEmail(e.target.value.toLowerCase().trim())}
                 className={`w-full pl-10 pr-3 py-2.5 rounded-xl text-sm border focus:outline-none transition ${
-                  isDark 
-                    ? 'bg-slate-800/90 border-slate-700 text-white placeholder-slate-500' 
-                    : 'bg-slate-50 border-slate-200 text-slate-900 placeholder-slate-400'
+                  isProfileAlreadyCompleted
+                    ? 'opacity-60 cursor-not-allowed bg-slate-800/40 border-slate-700/50 text-slate-300'
+                    : isDark 
+                      ? 'bg-slate-800/90 border-slate-700 text-white placeholder-slate-500' 
+                      : 'bg-slate-50 border-slate-200 text-slate-900 placeholder-slate-400'
                 }`}
               />
             </div>
             <p className="text-[11px] text-slate-400 mt-1">
-              Used for account security, multi-device backup, and profile verification.
+              {isProfileAlreadyCompleted 
+                ? 'Your registered email is saved permanently for account security.' 
+                : 'Used for account security, multi-device backup, and profile verification.'}
             </p>
           </div>
 

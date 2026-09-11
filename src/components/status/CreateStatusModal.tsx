@@ -1,10 +1,17 @@
 import React, { useState } from 'react';
-import { X, Image as ImageIcon, Type, Sparkles, Send, Loader2, Camera } from 'lucide-react';
+import { X, Image as ImageIcon, Type, Sparkles, Send, Loader2, Camera, Clock } from 'lucide-react';
 
 interface CreateStatusModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onPostStatus: (type: 'text' | 'image', content?: string, mediaUrl?: string, backgroundColor?: string, caption?: string) => Promise<void>;
+  onPostStatus: (
+    type: 'text' | 'image', 
+    content?: string, 
+    mediaUrl?: string, 
+    backgroundColor?: string, 
+    caption?: string,
+    durationHours?: number
+  ) => Promise<void>;
 }
 
 const colorPresets = [
@@ -27,6 +34,7 @@ export const CreateStatusModal: React.FC<CreateStatusModalProps> = ({
   const [selectedColor, setSelectedColor] = useState(colorPresets[0]);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [caption, setCaption] = useState('');
+  const [durationHours, setDurationHours] = useState<6 | 12 | 24>(24);
   const [isLoading, setIsLoading] = useState(false);
 
   if (!isOpen) return null;
@@ -51,9 +59,9 @@ export const CreateStatusModal: React.FC<CreateStatusModalProps> = ({
     setIsLoading(true);
     try {
       if (mode === 'text') {
-        await onPostStatus('text', textContent.trim(), undefined, selectedColor);
+        await onPostStatus('text', textContent.trim(), undefined, selectedColor, undefined, durationHours);
       } else {
-        await onPostStatus('image', undefined, imagePreview || '', undefined, caption.trim());
+        await onPostStatus('image', undefined, imagePreview || '', undefined, caption.trim(), durationHours);
       }
       onClose();
     } catch (err) {
@@ -186,6 +194,43 @@ export const CreateStatusModal: React.FC<CreateStatusModalProps> = ({
               </div>
             </div>
           )}
+
+          {/* Duration Options (6, 12, 24 Hours) */}
+          <div className="bg-slate-950/70 p-3 rounded-2xl border border-slate-800 space-y-2">
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-semibold text-slate-200 flex items-center gap-1.5">
+                <Clock className="w-3.5 h-3.5 text-emerald-400" />
+                <span>Active Duration (Timer)</span>
+              </label>
+              <span className="text-[11px] font-bold text-emerald-400 bg-emerald-500/15 px-2 py-0.5 rounded-lg border border-emerald-500/30">
+                {durationHours} Hours Active
+              </span>
+            </div>
+            <p className="text-[11px] text-slate-400 leading-tight">
+              Kitny ghanty status show ho? Selected time k badh automatically expire ho jaye ga.
+            </p>
+            <div className="grid grid-cols-3 gap-2 pt-1">
+              {[
+                { hours: 6 as const, label: '6 Hours', sub: 'Quick update' },
+                { hours: 12 as const, label: '12 Hours', sub: 'Half day' },
+                { hours: 24 as const, label: '24 Hours', sub: 'Full day (default)' },
+              ].map((opt) => (
+                <button
+                  key={opt.hours}
+                  type="button"
+                  onClick={() => setDurationHours(opt.hours)}
+                  className={`flex flex-col items-center justify-center py-2 px-1 rounded-xl text-xs font-bold border transition-all ${
+                    durationHours === opt.hours
+                      ? 'bg-emerald-500/20 border-emerald-500 text-emerald-300 shadow-sm ring-1 ring-emerald-500/50 scale-[1.02]'
+                      : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200 hover:bg-slate-800'
+                  }`}
+                >
+                  <span>{opt.label}</span>
+                  <span className="text-[10px] opacity-70 font-normal">{opt.sub}</span>
+                </button>
+              ))}
+            </div>
+          </div>
 
           {/* Submit */}
           <button

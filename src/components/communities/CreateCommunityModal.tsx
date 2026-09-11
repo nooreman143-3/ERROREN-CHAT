@@ -2,6 +2,7 @@ import React, { useState, useRef } from 'react';
 import { User, Community } from '../../types';
 import { Avatar } from '../common/Avatar';
 import { apiFetch } from '../../utils/api';
+import { createCommunityInSupabase, isSupabaseConfigured } from '../../services/supabaseChat';
 import { 
   Users, 
   X, 
@@ -73,6 +74,30 @@ export const CreateCommunityModal: React.FC<CreateCommunityModalProps> = ({
     setIsSubmitting(true);
     setError(null);
 
+    const communityAvatar = avatarUrl || `https://api.dicebear.com/7.x/identicon/svg?seed=${encodeURIComponent(name.trim())}`;
+
+    const commId = `comm_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+
+    // 1. Supabase first
+    if (isSupabaseConfigured()) {
+      try {
+        const sbComm = await createCommunityInSupabase({
+          id: commId,
+          name: name.trim(),
+          description: description.trim(),
+          avatarUrl: communityAvatar,
+          creatorId: currentUser.id,
+        });
+        if (sbComm) {
+          onCommunityCreated(sbComm);
+          onClose();
+          return;
+        }
+      } catch (err: any) {
+        console.warn('[CreateCommunityModal] Supabase creation error:', err);
+      }
+    }
+
     try {
       const response = await apiFetch('/api/communities', {
         method: 'POST',
@@ -80,24 +105,65 @@ export const CreateCommunityModal: React.FC<CreateCommunityModalProps> = ({
         body: JSON.stringify({
           name: name.trim(),
           description: description.trim(),
-          avatarUrl: avatarUrl || `https://api.dicebear.com/7.x/identicon/svg?seed=${encodeURIComponent(name)}`,
+          avatarUrl: communityAvatar,
           creatorId: currentUser.id,
         }),
       });
 
-      const data = await response.json();
-      if (!response.ok) {
-        throw new Error(data.error || 'Failed to create community');
+      if (response.ok) {
+        const data = await response.json();
+        if (data && data.community) {
+          onCommunityCreated(data.community);
+          onClose();
+          return;
+        }
       }
-
-      onCommunityCreated(data.community);
-      onClose();
     } catch (err: any) {
-      console.error('Error creating community:', err);
-      setError(err.message || 'Network error creating community');
-    } finally {
-      setIsSubmitting(false);
+      console.warn('Backend unavailable, using static fallback for community:', err);
     }
+
+    // Static / Offline fallback (e.g. GitHub Pages)
+    const fallbackCommunity: Community = {
+      id: `comm_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      name: name.trim(),
+      description: description.trim() || 'Welcome to our ERROREN community!',
+      avatarUrl: communityAvatar,
+      creatorId: currentUser.id,
+      adminIds: [currentUser.id],
+      memberIds: [currentUser.id],
+      members: [{ userId: currentUser.id, role: 'owner', joinedAt: Date.now() }],
+      groupIds: [],
+      channelIds: [],
+      inviteCode: Math.random().toString(36).substring(2, 8).toUpperCase(),
+      memberCount: 1,
+      isJoined: true,
+      channels: [
+        {
+          id: `chan_gen_${Date.now()}`,
+          name: 'general',
+          description: 'General discussion for community members',
+          type: 'text',
+          createdAt: Date.now(),
+        },
+        {
+          id: `chan_ann_${Date.now()}`,
+          name: 'announcements',
+          description: 'Official announcements from admins',
+          type: 'announcement',
+          createdAt: Date.now(),
+        }
+      ],
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+
+    try {
+      const existing = JSON.parse(localStorage.getItem('erroren_communities') || '[]');
+      localStorage.setItem('erroren_communities', JSON.stringify([fallbackCommunity, ...existing]));
+    } catch {}
+
+    onCommunityCreated(fallbackCommunity);
+    onClose();
   };
 
   return (

@@ -20,7 +20,7 @@ export const BottomNav: React.FC<BottomNavProps> = ({
   hasUnseenStatus = false,
   isHidden = false,
 }) => {
-  const { currentAccent } = useTheme();
+  const { currentAccent, isDark } = useTheme();
   if (isHidden) return null;
 
   const tabs = [
@@ -32,7 +32,11 @@ export const BottomNav: React.FC<BottomNavProps> = ({
   ];
 
   return (
-    <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-slate-950/95 border-t border-slate-800/90 backdrop-blur-2xl px-1.5 py-1.5 flex items-center justify-around safe-area-bottom shadow-2xl">
+    <nav className={`md:hidden fixed bottom-0 left-0 right-0 z-40 backdrop-blur-2xl px-1.5 py-1.5 flex items-center justify-around safe-area-bottom shadow-2xl transition-colors duration-200 ${
+      isDark
+        ? 'bg-slate-950/95 border-t border-slate-800/90 text-slate-100'
+        : 'bg-white/95 border-t border-slate-200 text-slate-800'
+    }`}>
       {tabs.map((tab) => {
         const Icon = tab.icon;
         const isActive = activeTab === tab.id;
@@ -44,7 +48,9 @@ export const BottomNav: React.FC<BottomNavProps> = ({
             className={`relative flex flex-col items-center justify-center py-1 px-2.5 sm:px-3 rounded-2xl transition-all duration-200 select-none ${
               isActive
                 ? 'font-bold scale-105'
-                : 'text-slate-400 hover:text-slate-200'
+                : isDark
+                ? 'text-slate-400 hover:text-slate-200'
+                : 'text-slate-500 hover:text-slate-800'
             }`}
             style={{
               color: isActive ? currentAccent.textColor : undefined,

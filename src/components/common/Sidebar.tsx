@@ -43,7 +43,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
   ];
 
   return (
-    <aside className="hidden md:flex flex-col justify-between w-64 bg-slate-950/80 border-r border-slate-800/80 backdrop-blur-xl p-4 flex-shrink-0 select-none">
+    <aside className={`hidden md:flex flex-col justify-between w-64 backdrop-blur-xl p-4 flex-shrink-0 select-none transition-colors duration-200 ${
+      isDark
+        ? 'bg-slate-950/80 border-r border-slate-800/80 text-slate-100'
+        : 'bg-white/90 border-r border-slate-200/90 text-slate-800 shadow-sm'
+    }`}>
       {/* Top Brand */}
       <div>
         <div className="px-2 py-3 mb-4">
@@ -63,7 +67,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 className={`w-full flex items-center justify-between px-3.5 py-3 rounded-2xl text-sm font-semibold transition-all duration-200 border ${
                   isActive
                     ? 'border-accent-soft shadow-accent'
-                    : 'text-slate-400 hover:text-slate-100 hover:bg-slate-900/60 border-transparent'
+                    : isDark
+                    ? 'text-slate-400 hover:text-slate-100 hover:bg-slate-900/60 border-transparent'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100 border-transparent'
                 }`}
                 style={{
                   backgroundColor: isActive ? currentAccent.softBg : undefined,
@@ -116,7 +122,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
               className={`w-full flex items-center justify-between px-3.5 py-3 rounded-2xl text-sm font-semibold transition-all duration-200 ${
                 activeTab === 'admin'
                   ? 'bg-amber-950/60 border border-amber-500/40 text-amber-300'
-                  : 'text-slate-400 hover:text-amber-300 hover:bg-slate-900/60 border border-transparent'
+                  : isDark
+                  ? 'text-slate-400 hover:text-amber-300 hover:bg-slate-900/60 border border-transparent'
+                  : 'text-slate-600 hover:text-amber-600 hover:bg-slate-100 border border-transparent'
               }`}
             >
               <div className="flex items-center gap-3">
@@ -134,16 +142,20 @@ export const Sidebar: React.FC<SidebarProps> = ({
       </div>
 
       {/* Bottom Profile & Theme Settings */}
-      <div className="pt-4 border-t border-slate-800/80 space-y-3">
+      <div className={`pt-4 border-t space-y-3 ${isDark ? 'border-slate-800/80' : 'border-slate-200'}`}>
         {/* Theme quick toggle */}
-        <div className="flex items-center justify-between px-2 py-1 bg-slate-900/50 rounded-xl border border-slate-800/60">
-          <span className="text-xs text-slate-400">Theme</span>
+        <div className={`flex items-center justify-between px-2 py-1 rounded-xl border ${
+          isDark ? 'bg-slate-900/50 border-slate-800/60' : 'bg-slate-100 border-slate-200'
+        }`}>
+          <span className={`text-xs ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>Theme</span>
           <button
             onClick={() => setTheme(isDark ? 'light' : 'dark')}
-            className="flex items-center gap-1.5 text-xs text-slate-300 hover:text-accent transition px-2 py-1 rounded-lg hover:bg-slate-800"
+            className={`flex items-center gap-1.5 text-xs transition px-2 py-1 rounded-lg ${
+              isDark ? 'text-slate-300 hover:text-accent hover:bg-slate-800' : 'text-slate-700 hover:text-accent hover:bg-slate-200'
+            }`}
             title="Toggle theme"
           >
-            {isDark ? <Moon className="w-3.5 h-3.5 text-accent" /> : <Sun className="w-3.5 h-3.5 text-amber-400" />}
+            {isDark ? <Moon className="w-3.5 h-3.5 text-accent" /> : <Sun className="w-3.5 h-3.5 text-amber-500" />}
             <span className="capitalize">{theme}</span>
           </button>
         </div>
@@ -152,7 +164,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
         {currentUser && (
           <div 
             onClick={() => setActiveTab('settings')}
-            className="flex items-center justify-between p-2 rounded-2xl bg-slate-900/80 border border-slate-800/80 cursor-pointer hover:border-accent-soft transition group"
+            className={`flex items-center justify-between p-2 rounded-2xl border cursor-pointer hover:border-accent-soft transition group ${
+              isDark ? 'bg-slate-900/80 border-slate-800/80' : 'bg-slate-100 border-slate-200'
+            }`}
             title="Click to open Profile & Settings"
           >
             <div className="flex items-center gap-2.5 min-w-0">
@@ -163,7 +177,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 isOnline={true}
               />
               <div className="min-w-0">
-                <div className="text-xs font-bold text-slate-200 group-hover:text-accent-bright transition truncate">
+                <div className={`text-xs font-bold group-hover:text-accent-bright transition truncate ${
+                  isDark ? 'text-slate-200' : 'text-slate-800'
+                }`}>
                   {currentUser.displayName}
                 </div>
                 <div className="text-[10px] text-accent truncate">

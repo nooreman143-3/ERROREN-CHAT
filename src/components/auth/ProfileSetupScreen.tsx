@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { Logo } from '../common/Logo';
 import { Camera, Sparkles, User as UserIcon, Check, Loader2, ArrowRight, AtSign, Phone, Mail, AlertCircle, CheckCircle2 } from 'lucide-react';
@@ -17,7 +17,13 @@ const COUNTRY_CODES = [
 ];
 
 export const ProfileSetupScreen: React.FC = () => {
-  const { currentUser, updateProfile, isLoading, error } = useAuth();
+  const { currentUser, updateProfile, isLoading, error, setAuthStep } = useAuth();
+
+  useEffect(() => {
+    if (currentUser?.isProfileComplete || currentUser?.profileCompleted) {
+      setAuthStep('authenticated');
+    }
+  }, [currentUser?.isProfileComplete, currentUser?.profileCompleted, setAuthStep]);
   const [displayName, setDisplayName] = useState(currentUser?.displayName || '');
   const [username, setUsername] = useState(currentUser?.username || '');
   const [phoneNumber, setPhoneNumber] = useState(currentUser?.phoneNumber || '');

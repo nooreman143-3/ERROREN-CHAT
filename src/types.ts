@@ -49,6 +49,8 @@ export interface User {
   lastSeen: number;
   role: 'user' | 'admin';
   isSuspended?: boolean;
+  isProfileComplete?: boolean;
+  profileCompleted?: boolean;
   createdAt: number;
   updatedAt?: number;
 }
@@ -126,7 +128,9 @@ export interface Chat {
   name?: string;
   avatarUrl: string;
   description?: string;
+  creatorId?: string;
   participantIds: string[];
+  participants?: any[];
   memberIds?: string[];
   adminIds?: string[];
   lastMessage?: Message;
@@ -167,16 +171,17 @@ export interface ChannelPost {
 
 export interface Channel {
   id: string;
-  communityId: string;
+  communityId?: string;
   name: string;
-  description: string;
-  avatarUrl: string;
-  creatorId: string;
-  adminIds: string[];
-  followerIds: string[];
-  isReadOnly: boolean;
+  description?: string;
+  avatarUrl?: string;
+  creatorId?: string;
+  adminIds?: string[];
+  followerIds?: string[];
+  isReadOnly?: boolean;
+  type?: string;
   createdAt: number;
-  updatedAt: number;
+  updatedAt?: number;
   postsCount?: number;
   isFollowed?: boolean;
   posts?: ChannelPost[];
@@ -189,6 +194,7 @@ export interface Community {
   avatarUrl: string;
   creatorId: string;
   members: CommunityMember[];
+  memberIds?: string[];
   adminIds: string[];
   groupIds: string[];
   channelIds: string[];
@@ -224,6 +230,7 @@ export interface StatusStory {
   fontStyle?: string;
   createdAt: number;
   expiresAt: number;
+  durationHours?: number; // 6, 12, 24
   views?: StatusViewer[];
   viewers?: StatusViewer[];
   likesCount?: number;

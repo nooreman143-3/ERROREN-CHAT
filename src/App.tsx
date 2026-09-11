@@ -35,6 +35,8 @@ import {
   getOrCreateDirectChatInSupabase,
   subscribeToChatMessages,
   subscribeToPresence,
+  saveStatusToSupabase,
+  fetchActiveStatusesFromSupabase,
 } from './services/supabaseChat';
 
 const MainAppContent: React.FC = () => {
@@ -102,13 +104,40 @@ const MainAppContent: React.FC = () => {
         }
       }
 
-      // 3. Fetch Status Stories
-      const statusRes = await apiFetch('/api/status');
-      if (statusRes.ok && statusRes.headers.get('content-type')?.includes('application/json')) {
-        const statusData = await statusRes.json();
-        if (Array.isArray(statusData)) {
-          setStatuses(statusData);
+      // 3. Fetch Status Stories (Supabase first)
+      let statusesLoaded = false;
+      if (isSupabaseConfigured()) {
+        try {
+          const sbStatuses = await fetchActiveStatusesFromSupabase();
+          if (sbStatuses && sbStatuses.length > 0) {
+            setStatuses(sbStatuses.filter((s) => s.expiresAt > Date.now()));
+            statusesLoaded = true;
+          }
+        } catch (err) {
+          console.warn('[App] Supabase fetchActiveStatuses error:', err);
         }
+      }
+
+      if (!statusesLoaded) {
+        try {
+          const statusRes = await apiFetch('/api/status');
+          if (statusRes.ok && statusRes.headers.get('content-type')?.includes('application/json')) {
+            const statusData = await statusRes.json();
+            if (Array.isArray(statusData)) {
+              setStatuses(statusData.filter((s: StatusStory) => !s.expiresAt || s.expiresAt > Date.now()));
+              statusesLoaded = true;
+            }
+          }
+        } catch (e) {}
+      }
+
+      if (!statusesLoaded) {
+        try {
+          const localStatuses = JSON.parse(localStorage.getItem('erroren_statuses') || '[]');
+          if (Array.isArray(localStatuses)) {
+            setStatuses(localStatuses.filter((s: StatusStory) => s.expiresAt > Date.now()));
+          }
+        } catch {}
       }
 
       // 4. Fetch Call Logs
@@ -532,6 +561,23 @@ const MainAppContent: React.FC = () => {
 
   // Create New Group
   const handleCreateGroup = async (title: string, description: string, memberIds: string[]) => {
+    const groupId = `group_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+    const newGroupObj: Chat = {
+      id: groupId,
+      title,
+      name: title,
+      description,
+      isGroup: true,
+      creatorId: currentUser.id,
+      participantIds: [currentUser.id, ...memberIds],
+      memberIds: [currentUser.id, ...memberIds],
+      adminIds: [currentUser.id],
+      avatarUrl: `https://api.dicebear.com/7.x/identicon/svg?seed=${encodeURIComponent(title)}`,
+      unreadCount: 0,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+
     try {
       const res = await apiFetch('/api/chats', {
         method: 'POST',
@@ -545,32 +591,72 @@ const MainAppContent: React.FC = () => {
           participantIds: [currentUser.id, ...memberIds],
           memberIds: [currentUser.id, ...memberIds],
           adminIds: [currentUser.id],
-          avatarUrl: 'https://images.unsplash.com/photo-1522071820081-009f0129c71c?w=150&auto=format&fit=crop&q=80',
+          avatarUrl: newGroupObj.avatarUrl,
         }),
       });
-      const data = await res.json();
-      const newGroup = data.chat || data;
-      setChats((prev) => {
-        const filtered = prev.filter(c => c.id !== newGroup.id);
-        return [newGroup, ...filtered];
-      });
-      setSelectedChatId(newGroup.id);
-      setActiveTab('chats');
+      if (res.ok) {
+        const data = await res.json();
+        const createdGroup = data.chat || data;
+        setChats((prev) => [createdGroup, ...prev.filter(c => c.id !== createdGroup.id)]);
+        setSelectedChatId(createdGroup.id);
+        setActiveTab('chats');
+        return;
+      }
     } catch (err) {
-      console.error('Failed to create group:', err);
+      console.warn('Backend unavailable for group creation, using local group:', err);
     }
+
+    setChats((prev) => [newGroupObj, ...prev.filter(c => c.id !== newGroupObj.id)]);
+    setSelectedChatId(newGroupObj.id);
+    setActiveTab('chats');
   };
 
-  // Post Status
+  // Post Status (supports 6, 12, 24 hours timer and Supabase persistence)
   const handlePostStatus = async (
     type: 'text' | 'image',
     content?: string,
     mediaUrl?: string,
     backgroundColor?: string,
-    caption?: string
+    caption?: string,
+    durationHours: number = 24
   ) => {
+    const expiresAt = Date.now() + durationHours * 3600 * 1000;
+    const newStory: StatusStory = {
+      id: `story_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      userId: currentUser.id,
+      userName: currentUser.displayName,
+      userAvatar: currentUser.avatarUrl,
+      type,
+      content,
+      mediaUrl,
+      backgroundColor,
+      caption,
+      durationHours,
+      expiresAt,
+      createdAt: Date.now(),
+      views: [],
+    };
+
+    // 1. Supabase first
+    if (isSupabaseConfigured()) {
+      try {
+        await saveStatusToSupabase(newStory);
+      } catch (err) {
+        console.warn('[App] Supabase saveStatus error:', err);
+      }
+    }
+
+    // 2. Local state & local storage for static hosting (GitHub Pages)
+    setStatuses((prev) => [newStory, ...prev.filter((s) => s.id !== newStory.id)]);
+
     try {
-      const res = await apiFetch('/api/status', {
+      const existing = JSON.parse(localStorage.getItem('erroren_statuses') || '[]');
+      localStorage.setItem('erroren_statuses', JSON.stringify([newStory, ...existing.filter((s: StatusStory) => s.id !== newStory.id)]));
+    } catch {}
+
+    // 3. API endpoint if available
+    try {
+      await apiFetch('/api/status', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -582,17 +668,19 @@ const MainAppContent: React.FC = () => {
           mediaUrl,
           backgroundColor,
           caption,
+          durationHours,
+          expiresAt,
         }),
       });
-      const newStory = await res.json();
-      setStatuses((prev) => [newStory, ...prev]);
     } catch (err) {
-      console.error('Failed to post status story:', err);
+      console.warn('Backend /api/status unavailable, saved locally & to Supabase');
     }
   };
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-[#070A0F] text-slate-100 antialiased font-sans">
+    <div className={`flex h-screen w-screen overflow-hidden antialiased font-sans transition-colors duration-200 ${
+      isDark ? 'bg-[#070A0F] text-slate-100' : 'bg-slate-100 text-slate-900'
+    }`}>
       {/* Desktop Persistent Sidebar */}
       <Sidebar
         activeTab={activeTab}

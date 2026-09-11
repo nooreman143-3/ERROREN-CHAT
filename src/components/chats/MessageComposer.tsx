@@ -69,8 +69,15 @@ export const MessageComposer: React.FC<MessageComposerProps> = ({
   onCancelEdit,
   lastPartnerMessage,
 }) => {
-  const { isProfileComplete, profileCompletionDetails, openProfileModal } = useAuth();
+  const { currentUser, isProfileComplete, profileCompletionDetails, openProfileModal } = useAuth();
   const { isDark, currentAccent } = useTheme();
+
+  const isActuallyComplete = Boolean(
+    currentUser?.isProfileComplete ||
+    currentUser?.profileCompleted ||
+    isProfileComplete ||
+    (currentUser?.phoneNumber && currentUser?.username && currentUser?.email && currentUser?.displayName && currentUser.displayName !== 'New Member')
+  );
 
   const [text, setText] = useState('');
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
@@ -81,7 +88,7 @@ export const MessageComposer: React.FC<MessageComposerProps> = ({
 
   // Validation function enforcing profile completion before any sending action
   const validateProfileBeforeSending = (): boolean => {
-    if (!isProfileComplete) {
+    if (!isActuallyComplete) {
       const missing = [
         !profileCompletionDetails.hasName && 'Name',
         !profileCompletionDetails.hasUsername && 'Username',
@@ -650,7 +657,7 @@ export const MessageComposer: React.FC<MessageComposerProps> = ({
       )}
 
       {/* Profile Must Be Complete Warning Banner */}
-      {!isProfileComplete && (
+      {!isActuallyComplete && (
         <div 
           className="mb-2.5 p-3 rounded-2xl border flex items-center justify-between gap-3 text-xs animate-in fade-in transition"
           style={{

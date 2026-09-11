@@ -45,7 +45,7 @@ export const ChatList: React.FC<ChatListProps> = ({
   onMarkUnread,
 }) => {
   const { onlineUserIds, typingUsers } = useSocket();
-  const { currentAccent } = useTheme();
+  const { currentAccent, isDark } = useTheme();
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState<'all' | 'unread' | 'groups'>('all');
   const [menuChatId, setMenuChatId] = useState<string | null>(null);
@@ -126,9 +126,13 @@ export const ChatList: React.FC<ChatListProps> = ({
   };
 
   return (
-    <div className="w-full md:w-80 lg:w-96 flex flex-col h-full bg-slate-950/60 border-r border-slate-800/80 flex-shrink-0">
+    <div className={`w-full md:w-80 lg:w-96 flex flex-col h-full flex-shrink-0 transition-colors duration-200 ${
+      isDark
+        ? 'bg-slate-950/60 border-r border-slate-800/80 text-slate-100'
+        : 'bg-white/95 border-r border-slate-200 text-slate-800 shadow-sm'
+    }`}>
       {/* Search & Filter Header */}
-      <div className="p-3.5 border-b border-slate-800/80 space-y-3">
+      <div className={`p-3.5 space-y-3 ${isDark ? 'border-b border-slate-800/80' : 'border-b border-slate-200'}`}>
         {/* Search Bar */}
         <div className="relative">
           <input
@@ -136,13 +140,17 @@ export const ChatList: React.FC<ChatListProps> = ({
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Search chats, contacts, or messages..."
-            className="w-full bg-slate-900/90 border border-slate-800 rounded-2xl pl-9 pr-4 py-2 text-xs text-slate-200 placeholder:text-slate-500 focus:outline-none focus:border-accent transition"
+            className={`w-full rounded-2xl pl-9 pr-4 py-2 text-xs transition border focus:outline-none focus:border-accent ${
+              isDark
+                ? 'bg-slate-900/90 border-slate-800 text-slate-200 placeholder:text-slate-500'
+                : 'bg-slate-100 border-slate-200 text-slate-800 placeholder:text-slate-400'
+            }`}
           />
           <Search className="w-3.5 h-3.5 text-slate-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
           {searchQuery && (
             <button
               onClick={() => setSearchQuery('')}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400 hover:text-white"
+              className={`absolute right-3 top-1/2 -translate-y-1/2 text-xs ${isDark ? 'text-slate-400 hover:text-white' : 'text-slate-500 hover:text-slate-900'}`}
             >
               ✕
             </button>
@@ -158,7 +166,9 @@ export const ChatList: React.FC<ChatListProps> = ({
               className={`px-3 py-1 rounded-xl text-xs font-semibold capitalize transition ${
                 activeFilter === filter
                   ? 'shadow-sm'
-                  : 'bg-slate-900/80 text-slate-400 hover:text-slate-200 border border-slate-800'
+                  : isDark
+                  ? 'bg-slate-900/80 text-slate-400 hover:text-slate-200 border border-slate-800'
+                  : 'bg-slate-100 text-slate-600 hover:text-slate-900 border border-slate-200'
               }`}
               style={{
                 backgroundColor: activeFilter === filter ? currentAccent.hex : undefined,
@@ -172,12 +182,12 @@ export const ChatList: React.FC<ChatListProps> = ({
       </div>
 
       {/* Chat List Items */}
-      <div className="flex-1 overflow-y-auto divide-y divide-slate-900/60">
+      <div className={`flex-1 overflow-y-auto divide-y ${isDark ? 'divide-slate-900/60' : 'divide-slate-100'}`}>
         {filteredChats.length === 0 ? (
           <div className="flex flex-col items-center justify-center p-8 text-center text-slate-500">
-            <MessageSquare className="w-10 h-10 text-slate-700 mb-2 stroke-[1.5]" />
+            <MessageSquare className="w-10 h-10 text-slate-600 mb-2 stroke-[1.5]" />
             <p className="text-xs font-medium">No chats found</p>
-            <p className="text-[11px] text-slate-600 mt-1">
+            <p className="text-[11px] text-slate-500 mt-1">
               {searchQuery ? 'Try another search query' : 'Start a new conversation to begin'}
             </p>
           </div>
@@ -192,8 +202,8 @@ export const ChatList: React.FC<ChatListProps> = ({
                 onClick={() => onSelectChat(chat.id)}
                 className={`relative flex items-center gap-3 p-3.5 cursor-pointer transition-colors group ${
                   isSelected
-                    ? 'bg-slate-800/80 border-l-4'
-                    : 'hover:bg-slate-900/60'
+                    ? isDark ? 'bg-slate-800/80 border-l-4' : 'bg-slate-100 border-l-4'
+                    : isDark ? 'hover:bg-slate-900/60' : 'hover:bg-slate-50'
                 }`}
                 style={{
                   borderLeftColor: isSelected ? currentAccent.hex : 'transparent',
@@ -213,11 +223,15 @@ export const ChatList: React.FC<ChatListProps> = ({
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center justify-between gap-1 mb-1">
                     <div className="flex items-center gap-1.5 min-w-0">
-                      <span className={`text-sm font-semibold truncate ${isSelected ? 'text-white' : 'text-slate-200'}`}>
+                      <span className={`text-sm font-semibold truncate ${
+                        isSelected 
+                          ? isDark ? 'text-white' : 'text-slate-900' 
+                          : isDark ? 'text-slate-200' : 'text-slate-800'
+                      }`}>
                         {chat.title || chat.name || 'Chat'}
                       </span>
                       {chat.isGroup && (
-                        <span className="p-0.5 rounded bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 text-[9px] font-mono">
+                        <span className="p-0.5 rounded bg-cyan-500/10 text-cyan-500 border border-cyan-500/20 text-[9px] font-mono">
                           GRP
                         </span>
                       )}

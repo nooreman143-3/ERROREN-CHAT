@@ -2,7 +2,7 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 import { User, Contact, UserSettings } from '../types';
 import { safeStorage } from '../utils/safeStorage';
 import { apiFetch } from '../utils/api';
-import { isSupabaseConfigured } from '../lib/supabase';
+import { getSupabaseClient, isSupabaseConfigured } from '../lib/supabase';
 import {
   findUserByPhone,
   addContactToSupabase,
@@ -11,6 +11,7 @@ import {
   upsertUserProfile,
   updateOnlineStatus,
   fetchAllRegisteredProfiles,
+  fetchProfileById,
 } from '../services/supabaseChat';
 
 export type AuthStep = 'welcome' | 'google_login' | 'profile' | 'authenticated';
@@ -153,7 +154,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const switchAccount = async (userId: string): Promise<boolean> => {
-    const target = savedAccounts.find((u) => u.id === userId);
+    let target = savedAccounts.find((u) => u.id === userId);
+    if (isSupabaseConfigured()) {
+      try {
+        const fresh = await fetchProfileById(userId);
+        if (fresh) {
+          target = target ? { ...target, ...fresh } : fresh;
+        }
+      } catch (e) {
+        console.warn('[AuthContext] switchAccount fetch profile error:', e);
+      }
+    }
+
     if (!target) return false;
 
     setCurrentUser(target);
@@ -161,6 +173,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     saveToAccountList(target);
     setAuthStep('authenticated');
     await refreshUsers();
+    await refreshContacts();
     return true;
   };
 
@@ -195,6 +208,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   // 0. Email/Username/Password Credentials Login & Registration Handler
+  // Uses Supabase Auth for real accounts. Username login resolves the username to
+  // its profile email first, then authenticates through Supabase Auth.
   const loginWithCredentials = async (
     identifier: string,
     password?: string,
@@ -205,110 +220,156 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   ): Promise<{ success: boolean; error?: string; isNewUser?: boolean }> => {
     setIsLoading(true);
     setError(null);
+
     const cleanIdentifier = identifier.trim();
+    const cleanPassword = password?.trim() || '';
 
     try {
-      const endpoint = mode === 'register' ? '/api/auth/register' : '/api/auth/login';
-      const payload: any = mode === 'register'
-        ? {
-            email: cleanIdentifier.includes('@') ? cleanIdentifier.toLowerCase() : undefined,
-            username: !cleanIdentifier.includes('@') ? cleanIdentifier.toLowerCase().replace(/^@/, '') : undefined,
-            password: password ? password.trim() : undefined,
-            displayName: displayName?.trim(),
-            avatarUrl,
-            phoneNumber,
-          }
-        : {
-            identifier: cleanIdentifier,
-            password: password ? password.trim() : undefined,
-          };
+      if (!isSupabaseConfigured()) {
+        const msg = 'Supabase is not configured. Please add VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY.';
+        setError(msg);
+        return { success: false, error: msg };
+      }
 
-      const res = await apiFetch(endpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
+      const client = getSupabaseClient();
+      if (!client) {
+        const msg = 'Unable to initialize Supabase. Please check your Supabase configuration.';
+        setError(msg);
+        return { success: false, error: msg };
+      }
+
+      if (!cleanIdentifier || !cleanPassword) {
+        const msg = 'Please enter your email/username and password.';
+        setError(msg);
+        return { success: false, error: msg };
+      }
+
+      let email = cleanIdentifier.toLowerCase();
+
+      // Allow the existing UI to accept either email or username.
+      if (!email.includes('@')) {
+        const username = cleanIdentifier.replace(/^@/, '').toLowerCase();
+        const { data: profile, error: profileError } = await client
+          .from('profiles')
+          .select('email')
+          .eq('username', username)
+          .maybeSingle();
+
+        if (profileError || !profile?.email) {
+          const msg = 'No account found with this username. Please use your registered email.';
+          setError(msg);
+          return { success: false, error: msg };
+        }
+        email = String(profile.email).trim().toLowerCase();
+      }
+
+      if (mode === 'register') {
+        const { data, error: signUpError } = await client.auth.signUp({
+          email,
+          password: cleanPassword,
+          options: {
+            data: {
+              display_name: displayName?.trim() || email.split('@')[0],
+              username: !cleanIdentifier.includes('@')
+                ? cleanIdentifier.replace(/^@/, '').toLowerCase()
+                : email.split('@')[0].toLowerCase(),
+              phone: phoneNumber?.trim() || null,
+              avatar_url: avatarUrl || `https://api.dicebear.com/7.x/bottts/svg?seed=${email}`,
+            },
+          },
+        });
+
+        if (signUpError) {
+          const msg = signUpError.message || 'Registration failed.';
+          setError(msg);
+          return { success: false, error: msg };
+        }
+
+        if (!data.user) {
+          const msg = 'Unable to create your account. Please try again.';
+          setError(msg);
+          return { success: false, error: msg };
+        }
+
+        // If email confirmation is enabled, Supabase may intentionally return no session.
+        if (!data.session) {
+          const msg = 'Account created. Please check your email and confirm your account before logging in.';
+          setError(msg);
+          return { success: true, isNewUser: true };
+        }
+
+        const user: User = {
+          id: data.user.id,
+          email: data.user.email || email,
+          username: !cleanIdentifier.includes('@')
+            ? cleanIdentifier.replace(/^@/, '').toLowerCase()
+            : email.split('@')[0].toLowerCase(),
+          displayName: displayName?.trim() || email.split('@')[0],
+          about: 'Available | Using ERROREN CHAT ⚡',
+          avatarUrl: avatarUrl || `https://api.dicebear.com/7.x/bottts/svg?seed=${email}`,
+          phoneNumber: phoneNumber?.trim() || undefined,
+          isOnline: true,
+          lastSeen: Date.now(),
+          role: 'user',
+          isProfileComplete: false,
+          profileCompleted: false,
+          createdAt: Date.now(),
+        };
+
+        const savedProfile = await upsertUserProfile(user);
+        const finalUser = savedProfile ? { ...user, ...savedProfile } : user;
+
+        setCurrentUser(finalUser);
+        safeStorage.setJSON('erroren_user', finalUser);
+        saveToAccountList(finalUser);
+        setAuthStep('profile');
+        await refreshUsers();
+        await refreshContacts();
+
+        return { success: true, isNewUser: true };
+      }
+
+      const { data, error: signInError } = await client.auth.signInWithPassword({
+        email,
+        password: cleanPassword,
       });
 
-      const contentType = res.headers.get('content-type') || '';
-      if (contentType.includes('application/json')) {
-        const data = await res.json();
-        if (res.ok && data.user) {
-          setCurrentUser(data.user);
-          safeStorage.setJSON('erroren_user', data.user);
-          saveToAccountList(data.user);
-          setAuthStep('authenticated');
-
-          await refreshUsers();
-          await refreshContacts();
-          return { success: true, isNewUser: data.isNewUser };
-        } else if (!data.offline && res.status !== 503 && res.status !== 404) {
-          const errMsg = data.error || (mode === 'register' ? 'Registration failed.' : 'Login failed.');
-          setError(errMsg);
-          return { success: false, error: errMsg };
-        }
+      if (signInError || !data.user) {
+        const msg = signInError?.message || 'Login failed. Please check your email and password.';
+        setError(msg);
+        return { success: false, error: msg };
       }
 
-      if (!res.ok && res.status !== 404 && res.status !== 503) {
-        const errMsg = mode === 'register' ? 'Registration server error.' : 'Login server error.';
-        setError(errMsg);
-        return { success: false, error: errMsg };
-      }
-
-      // Offline / Static fallback (e.g. GitHub Pages static deploy)
-      const isEmail = cleanIdentifier.includes('@');
-      const cleanEmail = isEmail ? cleanIdentifier.toLowerCase() : `${cleanIdentifier.toLowerCase().replace(/^@/, '')}@erroren.chat`;
-      const cleanUsername = !isEmail ? cleanIdentifier.toLowerCase().replace(/^@/, '') : cleanIdentifier.split('@')[0];
-
-      const existingUser = (allUsers || []).find(
-        (u) => (u.email && u.email.toLowerCase() === cleanEmail) ||
-               (u.username && u.username.toLowerCase() === cleanUsername)
-      ) || savedAccounts.find(
-        (u) => (u.email && u.email.toLowerCase() === cleanEmail) ||
-               (u.username && u.username.toLowerCase() === cleanUsername)
-      );
-
-      if (mode === 'register' && existingUser) {
-        const errMsg = 'An account with this email/username already exists. Please sign in.';
-        setError(errMsg);
-        return { success: false, error: errMsg };
-      }
-
-      if (mode === 'login') {
-        if (!existingUser && allUsers.length > 0) {
-          const errMsg = 'No account found with this email or username. Please register first.';
-          setError(errMsg);
-          return { success: false, error: errMsg };
-        }
-        if (existingUser && existingUser.password && password && existingUser.password !== password.trim()) {
-          const errMsg = 'Incorrect password. Please verify and try again.';
-          setError(errMsg);
-          return { success: false, error: errMsg };
-        }
-      }
-
-      const targetUser: User = existingUser || {
-        id: `usr_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
-        email: cleanEmail,
-        username: cleanUsername,
-        password: password ? password.trim() : undefined,
-        displayName: displayName?.trim() || cleanUsername || 'ERROREN Member',
-        about: 'Available | Using ERROREN CHAT ⚡',
-        avatarUrl: avatarUrl || `https://api.dicebear.com/7.x/bottts/svg?seed=${cleanUsername}`,
+      const profile = await fetchProfileById(data.user.id);
+      const finalUser: User = profile || {
+        id: data.user.id,
+        email: data.user.email || email,
+        username: data.user.user_metadata?.username || email.split('@')[0].toLowerCase(),
+        displayName: data.user.user_metadata?.display_name || email.split('@')[0],
+        about: data.user.user_metadata?.about || 'Available | Using ERROREN CHAT ⚡',
+        avatarUrl: data.user.user_metadata?.avatar_url || `https://api.dicebear.com/7.x/bottts/svg?seed=${email}`,
         isOnline: true,
         lastSeen: Date.now(),
         role: 'user',
-        createdAt: Date.now(),
+        isProfileComplete: false,
+        profileCompleted: false,
+        createdAt: new Date(data.user.created_at).getTime() || Date.now(),
       };
 
-      setCurrentUser(targetUser);
-      safeStorage.setJSON('erroren_user', targetUser);
-      saveToAccountList(targetUser);
-      setAuthStep('authenticated');
-      return { success: true, isNewUser: !existingUser };
+      setCurrentUser(finalUser);
+      safeStorage.setJSON('erroren_user', finalUser);
+      saveToAccountList(finalUser);
+      setAuthStep(finalUser.displayName && finalUser.displayName !== 'New Member' ? 'authenticated' : 'profile');
+      await upsertUserProfile({ ...finalUser, isOnline: true });
+      await refreshUsers();
+      await refreshContacts();
+
+      return { success: true, isNewUser: false };
     } catch (err: any) {
-      const errMsg = err.message || 'Authentication error. Please try again.';
-      setError(errMsg);
-      return { success: false, error: errMsg };
+      const msg = err?.message || 'Authentication error. Please try again.';
+      console.error('[AuthContext] Supabase credentials auth error:', err);
+      setError(msg);
+      return { success: false, error: msg };
     } finally {
       setIsLoading(false);
     }
@@ -733,34 +794,36 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       });
 
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        if (data.offline || res.status === 503) {
-          // Offline / Static fallback for profile update
-          const updated: User = {
-            ...currentUser,
-            displayName: displayName?.trim() || currentUser.displayName,
-            username: cleanUsername !== undefined ? (cleanUsername || undefined) : currentUser.username,
-            about: about !== undefined ? about.trim() : currentUser.about,
-            avatarUrl: avatarUrl || currentUser.avatarUrl,
-            phoneNumber: phoneNumber !== undefined ? (phoneNumber.trim() || undefined) : currentUser.phoneNumber,
-            countryCode: countryCode || currentUser.countryCode,
-            email: cleanEmail !== undefined ? (cleanEmail || undefined) : currentUser.email,
-          };
-          setCurrentUser(updated);
-          safeStorage.setJSON('erroren_user', updated);
-          saveToAccountList(updated);
-          if (isSupabaseConfigured()) {
-            upsertUserProfile(updated).catch(() => {});
-          }
-          setAuthStep('authenticated');
-          return true;
+      if (!res.ok || data.offline || res.status === 503 || res.status === 404) {
+        // Offline / Static fallback for profile update (e.g. GitHub Pages)
+        const updated: User = {
+          ...currentUser,
+          displayName: displayName?.trim() || currentUser.displayName,
+          username: cleanUsername !== undefined ? (cleanUsername || undefined) : currentUser.username,
+          about: about !== undefined ? about.trim() : currentUser.about,
+          avatarUrl: avatarUrl || currentUser.avatarUrl,
+          phoneNumber: phoneNumber !== undefined ? (phoneNumber.trim() || undefined) : currentUser.phoneNumber,
+          countryCode: countryCode || currentUser.countryCode,
+          email: cleanEmail !== undefined ? (cleanEmail || undefined) : currentUser.email,
+          isProfileComplete: true,
+          profileCompleted: true,
+        };
+        setCurrentUser(updated);
+        safeStorage.setJSON('erroren_user', updated);
+        saveToAccountList(updated);
+        if (isSupabaseConfigured()) {
+          upsertUserProfile(updated).catch(() => {});
         }
-        setError(data.error || 'Failed to update profile');
-        setIsLoading(false);
-        return false;
+        setAuthStep('authenticated');
+        await refreshUsers();
+        return true;
       }
 
-      const updatedUser: User = data.user;
+      const updatedUser: User = {
+        ...data.user,
+        isProfileComplete: true,
+        profileCompleted: true,
+      };
       setCurrentUser(updatedUser);
       safeStorage.setJSON('erroren_user', updatedUser);
       saveToAccountList(updatedUser);
@@ -1093,8 +1156,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const logout = () => {
-    if (currentUser?.id && isSupabaseConfigured()) {
-      updateOnlineStatus(currentUser.id, false).catch(() => {});
+    const userId = currentUser?.id;
+    if (userId && isSupabaseConfigured()) {
+      updateOnlineStatus(userId, false).catch(() => {});
+      getSupabaseClient()?.auth.signOut().catch((err) => {
+        console.warn('[AuthContext] Supabase signOut error:', err);
+      });
     }
     setCurrentUser(null);
     safeStorage.removeItem('erroren_user');

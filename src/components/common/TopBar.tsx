@@ -23,10 +23,14 @@ export const TopBar: React.FC<TopBarProps> = ({
 }) => {
   const { currentUser } = useAuth();
   const { isConnected, connectionState, reconnect } = useSocket();
-  const { currentAccent } = useTheme();
+  const { currentAccent, isDark } = useTheme();
 
   return (
-    <header className={`h-16 px-4 md:px-6 bg-slate-950/90 border-b border-slate-800/80 backdrop-blur-xl items-center justify-between z-30 sticky top-0 ${
+    <header className={`h-16 px-4 md:px-6 backdrop-blur-xl items-center justify-between z-30 sticky top-0 transition-colors duration-200 ${
+      isDark
+        ? 'bg-slate-950/90 border-b border-slate-800/80 text-slate-100'
+        : 'bg-white/95 border-b border-slate-200 text-slate-800 shadow-sm'
+    } ${
       isHiddenOnMobile ? 'hidden md:flex' : 'flex'
     }`}>
       {/* Left: Mobile Logo & Connection Status */}
@@ -75,7 +79,11 @@ export const TopBar: React.FC<TopBarProps> = ({
         {currentUser && (
           <button
             onClick={onOpenSettings}
-            className="flex items-center gap-2 px-2.5 sm:px-3 py-1.5 rounded-xl bg-slate-900/90 hover:bg-slate-800 border border-slate-800 text-xs font-medium text-slate-200 transition"
+            className={`flex items-center gap-2 px-2.5 sm:px-3 py-1.5 rounded-xl border text-xs font-medium transition ${
+              isDark
+                ? 'bg-slate-900/90 hover:bg-slate-800 border-slate-800 text-slate-200'
+                : 'bg-slate-100 hover:bg-slate-200 border-slate-200 text-slate-800'
+            }`}
             title="Open Settings"
           >
             <Avatar
@@ -84,7 +92,7 @@ export const TopBar: React.FC<TopBarProps> = ({
               size="xs"
               isOnline={isConnected}
             />
-            <span className="font-semibold text-slate-200 max-w-[90px] sm:max-w-[140px] truncate">
+            <span className={`font-semibold max-w-[90px] sm:max-w-[140px] truncate ${isDark ? 'text-slate-200' : 'text-slate-800'}`}>
               {currentUser.displayName || 'Me'}
             </span>
           </button>
@@ -94,7 +102,11 @@ export const TopBar: React.FC<TopBarProps> = ({
         {onOpenSettings && (
           <button
             onClick={onOpenSettings}
-            className="p-2 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-300 hover:text-white transition"
+            className={`p-2 rounded-xl border transition ${
+              isDark
+                ? 'bg-slate-900 hover:bg-slate-800 border-slate-700 text-slate-300 hover:text-white'
+                : 'bg-slate-100 hover:bg-slate-200 border-slate-200 text-slate-600 hover:text-slate-900'
+            }`}
             title="Settings & Wallpaper"
           >
             <Settings className="w-4 h-4" />
@@ -104,7 +116,11 @@ export const TopBar: React.FC<TopBarProps> = ({
         {/* New Group Button */}
         <button
           onClick={onOpenNewGroup}
-          className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-700 text-xs font-semibold text-slate-300 hover:text-white transition"
+          className={`hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-semibold transition ${
+            isDark
+              ? 'bg-slate-900 hover:bg-slate-800 border-slate-700 text-slate-300 hover:text-white'
+              : 'bg-slate-100 hover:bg-slate-200 border-slate-200 text-slate-700 hover:text-slate-900'
+          }`}
           title="Create New Group"
         >
           <Users className="w-3.5 h-3.5 text-slate-400" />
